@@ -1,0 +1,155 @@
+name: CI Windows
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: TypeScript, tests et shim reproductible
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    env:
+      CI: "true"
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Installer Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Installer Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.15.2
+
+      - name: Refuser les fichiers propriétaires du client
+        shell: pwsh
+        run: |
+          $forbiddenNames = @(
+            "H1Z1.exe",
+            "H1Z1_BE.exe",
+            "steam_api64.original.dll",
+            "ClientConfig.ini"
+          )
+          $found = Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Recurse -File |
+            Where-Object { $forbiddenNames -contains $_.Name } |
+            Select-Object -ExpandProperty FullName
+          if ($found) {
+            $found | ForEach-Object { Write-Error "Fichier client interdit dans le dépôt : $_" }
+            throw "Le dépôt contient un fichier propriétaire ou une sauvegarde locale."
+          }
+
+          $allowedDll = [System.IO.Path]::GetFullPath(
+            (Join-Path $env:GITHUB_WORKSPACE "resources\patches\steam_api64.dll")
+          )
+          $unexpectedDlls = Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Recurse -File -Filter "*.dll" |
+            Where-Object { $_.FullName -ne $allowedDll } |
+            Select-Object -ExpandProperty FullName
+          if ($unexpectedDlls) {
+            $unexpectedDlls | ForEach-Object { Write-Error "DLL inattendu dans le dépôt : $_" }
+            throw "Seul le shim open source compilable peut être versionné."
+          }
+
+      - name: Installer les dépendances verrouillées
+        run: npm ci
+
+      - name: Compiler deux fois le shim
+        shell: pwsh
+        run: |
+          npm run build:shim
+          $shim = Join-Path $env:GITHUB_WORKSPACE "native\steamshim\dist\steam_api64.dll"
+          if (-not (Test-Path -LiteralPath $shim -PathType Leaf)) {
+            throw "Le build du shim n'a produit aucun DLL."
+          }
+          $firstHash = (Get-FileHash -LiteralPath $shim -Algorithm SHA256).Hash
+
+          $alternateShim = Join-Path $env:GITHUB_WORKSPACE "native\steamshim\dist\alternate-path\steam_api64.dll"
+          & powershell -NoProfile -ExecutionPolicy Bypass `
+            -File native/steamshim/build-steam-shim.ps1 `
+            -OutputPath $alternateShim
+          if ($LASTEXITCODE -ne 0) {
+            throw "Le second build du shim a echoue."
+          }
+          $secondHash = (Get-FileHash -LiteralPath $alternateShim -Algorithm SHA256).Hash
+          if ($firstHash -ne $secondHash) {
+            throw "Le shim n'est pas reproductible : $firstHash != $secondHash"
+          }
+
+          $bundled = Join-Path $env:GITHUB_WORKSPACE "resources\patches\steam_api64.dll"
+          $bundledHash = (Get-FileHash -LiteralPath $bundled -Algorithm SHA256).Hash
+          if ($secondHash -ne $bundledHash) {
+            throw "Le shim embarqué ne correspond pas au source : $secondHash != $bundledHash"
+          }
+          "$secondHash *steam_api64.dll" |
+            Set-Content -LiteralPath "native\steamshim\dist\steam_api64.dll.sha256" -Encoding ascii
+          Write-Host "Shim reproductible : $secondHash"
+
+      - name: Vérifier les exports du shim
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsRoot = & $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+          if (-not $vsRoot) {
+            throw "Visual Studio Build Tools est introuvable sur le runner."
+          }
+          $dumpbin = Get-ChildItem -Path (Join-Path $vsRoot "VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe") |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $dumpbin) {
+            throw "dumpbin.exe est introuvable."
+          }
+
+          $shim = Join-Path $env:GITHUB_WORKSPACE "native\steamshim\dist\steam_api64.dll"
+          $exports = (& $dumpbin.FullName /nologo /exports $shim) -join "`n"
+          $expected = @(
+            "SteamAPI_Init",
+            "SteamAPI_Shutdown",
+            "SteamAPI_RunCallbacks",
+            "SteamAPI_GetHSteamUser",
+            "SteamAPI_GetHSteamPipe",
+            "SteamAPI_RegisterCallback",
+            "SteamAPI_UnregisterCallback",
+            "SteamAPI_RegisterCallResult",
+            "SteamAPI_UnregisterCallResult",
+            "SteamInternal_CreateInterface"
+          )
+          foreach ($symbol in $expected) {
+            if ($exports -notmatch "(?m)\b$([regex]::Escape($symbol))\b") {
+              throw "Export manquant dans le shim : $symbol"
+            }
+          }
+
+      - name: Typer, tester et construire le launcher
+        run: npm run build
+
+      - name: Publier les artefacts de vérification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rotk-launcher-windows-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/
+            dist-electron/
+            native/steamshim/dist/steam_api64.dll
+            native/steamshim/dist/steam_api64.dll.sha256

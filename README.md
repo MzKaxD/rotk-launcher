@@ -1,0 +1,140 @@
+# ROTK Launcher
+
+Launcher Windows open source de **Return of the King (ROTK)**. Il utilise directement un client H1Z1 déjà isolé ou prépare une copie dédiée depuis Steam, affiche les deux dernières actualités publiées sur [rotk.app](https://rotk.app/updates), puis lance le jeu avec la configuration réseau ROTK.
+
+> [!IMPORTANT]
+> Le dépôt ne contient, ne télécharge et ne redistribue **aucun fichier du client H1Z1**. Il faut disposer d’une copie obtenue légitimement, par exemple via Steam. H1Z1 et les marques associées appartiennent à leurs ayants droit. ROTK est un projet communautaire indépendant, sans affiliation avec Daybreak Game Company.
+
+## Sélection intelligente du client
+
+Le launcher inspecte le chemin logique et physique sélectionné :
+
+- un client déjà isolé hors de `Steam`, `SteamLibrary`, `steamapps` et `common` est configuré et utilisé directement ;
+- une installation située sous l’un de ces dossiers sert uniquement de **source de copie** vers un emplacement séparé.
+
+Cette règle évite tout conflit avec la version live sans imposer une nouvelle copie à l’utilisateur qui possède déjà un client Alpha ou une installation indépendante.
+
+La validation porte aussi sur le chemin physique afin qu’une jonction ou un lien symbolique ne permette pas de contourner la règle. La copie passe par un dossier temporaire, vérifie les fichiers critiques en SHA-256 et n’est rendue active qu’après finalisation.
+
+Une installation terminée est mémorisée dans `%APPDATA%\ROTK Launcher\config.v1.json`, avec une copie de secours locale. Le même chemin canonique est utilisé par les versions suivantes du launcher ; les anciens dossiers de configuration connus sont migrés automatiquement. Le sélecteur du client ne réapparaît que si aucune installation valide n’a encore été enregistrée.
+
+## Fonctionnalités
+
+- interface Electron/React inspirée de l’identité visuelle de la web app ROTK ;
+- interface bilingue, en anglais par défaut, avec choix English/Français mémorisé localement ;
+- affichage des deux derniers dev updates ou patch notes publiés sur `rotk.app` ;
+- images de couverture chargées à la demande depuis `https://rotk.app` ;
+- utilisation directe d’un client déjà isolé ou assistant de copie depuis Steam ;
+- contrôle d’espace disque, progression par fichier et annulation sûre ;
+- sauvegarde des fichiers originaux avant configuration ;
+- lancement de `H1Z1.exe` sans shell, avec une liste d’arguments construite par le launcher ;
+- clé launcher créée depuis le compte Steam sur `rotk.app`, obligatoire avant le lancement et conservée chiffrée avec Windows DPAPI ;
+- échange HTTPS de cette clé durable contre un ticket court à usage unique, avec validation stricte du ROTKID, du GameAccountGUID et du SteamID renvoyés ;
+- mini-gateway Steam de session lié exclusivement à `127.0.0.1` pendant l’exécution du jeu : H1Z1 reçoit uniquement le ticket court, jamais la clé durable ;
+- shim `steam_api64.dll` open source, compilable de façon déterministe avec Zig ;
+- isolation Electron (`contextIsolation`, sandbox, IPC limité et navigation externe filtrée).
+
+La configuration intégrée cible actuellement le serveur OVH ROTK `51.255.160.224` et ses listeners login `20042` à `20045`. Le futur manifeste runtime HTTPS signé remplacera cette configuration bornée sans exposer d’arguments arbitraires au renderer.
+
+## Authentification du compte joueur
+
+Le launcher ne génère aucune identité joueur. L’utilisateur doit se connecter avec Steam sur [rotk.app](https://rotk.app), ouvrir **Avatar → Account settings → ROTK launcher key**, générer sa clé puis la coller dans le launcher. Sans clé hexadécimale valide de 32 caractères, le bouton de lancement ouvre cette procédure au lieu de démarrer H1Z1.
+
+La clé est chiffrée par Electron `safeStorage` — Windows DPAPI sur la plateforme cible — avant son écriture dans `%APPDATA%\ROTK Launcher\player-key.v1.json`. À chaque lancement, elle est envoyée uniquement dans le corps JSON d’un POST HTTPS vers le service de compte. La réponse fournit un ticket éphémère à usage unique ainsi que le ROTKID, le GameAccountGUID, le vrai SteamID et le pseudo validés. Seuls ce ticket et cette identité validée sont ensuite transmis au client ; la clé durable n’apparaît ni dans ses arguments, ni dans `ClientConfig.ini`, ni dans le XML du mini-gateway.
+
+## Prérequis de développement
+
+- Windows 10 ou 11 x64 ;
+- Node.js 22 ;
+- npm 10 ou ultérieur ;
+- [Zig 0.15.2](https://ziglang.org/download/0.15.2/) pour reconstruire le shim natif.
+
+Lancer l’application en développement :
+
+```powershell
+git clone https://github.com/MzKaxD/rotk-launcher.git
+cd rotk-launcher
+npm ci
+npm run dev
+```
+
+Le mode développeur normal réutilise la configuration du launcher installé. Pour un test volontairement isolé, sans toucher à cette configuration :
+
+```powershell
+npm run dev:isolated
+```
+
+Si Zig n’est pas dans le `PATH`, le script accepte le chemin explicite de l’exécutable :
+
+```powershell
+$env:ZIG_EXE = "C:\Tools\zig\zig.exe"
+npm run build:shim
+```
+
+## Vérifier et construire
+
+La commande principale exécute le typage, les tests et les builds Electron/renderer :
+
+```powershell
+npm run build
+```
+
+Pour reconstruire le DLL open source livré avec le launcher :
+
+```powershell
+npm run build:shim
+Copy-Item native\steamshim\dist\steam_api64.dll resources\patches\steam_api64.dll -Force
+```
+
+Puis générer une release Windows signée (un certificat Authenticode doit être configuré) :
+
+```powershell
+npm run dist
+```
+
+Pour générer uniquement un dossier de prévisualisation local non signé :
+
+```powershell
+npm run dist:dir
+```
+
+La CI Windows fixe Zig à la version `0.15.2`, compile deux fois le shim et compare les SHA-256 obtenus avant de construire l’application. Les artefacts CI utilisent toujours le DLL recompilé depuis `native/steamshim/steam_api64.c`.
+
+## Architecture
+
+| Dossier | Rôle |
+| --- | --- |
+| `src/` | interface React du launcher |
+| `electron/` | processus principal, preload et services système |
+| `shared/` | contrats TypeScript partagés |
+| `native/steamshim/` | source C et script de build reproductible du shim |
+| `resources/patches/` | DLL open source embarqué dans l’application |
+| `public/branding/` | identité visuelle propre au projet |
+| `tests/` | tests unitaires des règles critiques |
+| `contracts/` | contrats versionnés pour la future configuration OVH signée |
+
+Le renderer n’accède jamais directement à Node.js. Les sélections de dossiers, la copie, la configuration et le lancement sont exécutés dans le processus principal derrière une API preload volontairement étroite.
+
+## Flux des actualités
+
+Le launcher lit la collection publique `publishedUpdates`, limite la réponse aux deux publications les plus récentes et n’accepte pour les couvertures que les URLs HTTPS de l’origine `rotk.app`. Une copie locale du dernier flux valide permet de conserver les actualités déjà consultées en cas de coupure réseau.
+
+Les contrôles, états, dates, dialogues système et erreurs connues du launcher sont localisés en anglais et en français. Le titre et le résumé d’une actualité restent affichés dans la langue utilisée par son auteur sur `rotk.app` : le launcher ne traduit pas automatiquement le contenu éditorial distant.
+
+Les captures du jeu ne sont pas versionnées dans ce dépôt. Voir [ASSET_LICENSE.md](ASSET_LICENSE.md).
+
+## Releases vérifiables
+
+Le workflow de release reconstruit le shim depuis sa source C, exécute les tests, génère l’installateur Windows et publie ses sommes SHA-256 ainsi qu’une attestation de provenance GitHub. Une release publique échoue désormais si l’installateur ou l’exécutable principal n’a pas une signature Authenticode valide, cohérente et horodatée.
+
+L’environnement GitHub protégé `release` doit contenir les secrets `WINDOWS_CERTIFICATE_BASE64` et `WINDOWS_CERTIFICATE_PASSWORD`, ainsi que la variable `WINDOWS_PUBLISHER_SUBJECT` égale au sujet Authenticode exact du certificat. Les secrets ne sont exposés qu’à l’étape de packaging. Le workflow refuse aussi un tag différent de la version `package.json`, un commit extérieur à `main`, une identité d’éditeur inattendue, un timestamp absent ou un shim non signé.
+
+Un certificat public délivré après validation de l’identité de l’éditeur est requis : un certificat auto-signé ne retire pas l’avertissement Windows. La signature affiche un éditeur vérifié et permet d’accumuler une réputation SmartScreen entre les versions, mais Microsoft peut encore avertir lors des premiers téléchargements d’un nouvel éditeur.
+
+## Contribuer et signaler une faille
+
+Les contributions sont bienvenues : consultez [CONTRIBUTING.md](CONTRIBUTING.md). Pour une vulnérabilité, n’ouvrez pas d’issue publique et suivez [SECURITY.md](SECURITY.md).
+
+## Licence
+
+Le code du launcher, y compris le shim C, est distribué sous **GNU GPL v3.0 ou ultérieure** (`GPL-3.0-or-later`). Consultez [LICENSE](LICENSE), [ASSET_LICENSE.md](ASSET_LICENSE.md) et [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

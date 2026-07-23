@@ -1,0 +1,17 @@
+node_modules/
+dist/
+dist-electron/
+release/
+release-*/
+coverage/
+.vite/
+.dev-data/
+/devdata
+*.log
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+native/steamshim/.zig-cache/
+native/steamshim/.zig-tmp*/
+native/steamshim/dist/
+resources/patches/*.pdb

@@ -1,0 +1,116 @@
+import type { AppLocale } from "../shared/locale.js";
+
+export const MAIN_COPY = {
+  en: {
+    unexpectedError: "An unexpected error occurred.",
+    installationCancelled: "Installation cancelled.",
+    windowUnavailable: "The launcher window is unavailable.",
+    selectSourceFirst: "Select the H1Z1 client first.",
+    selectBoth: "Choose where the standalone copy should be created.",
+    destinationNotNeeded: "This standalone client can be used directly.",
+    clientInUse: "Close H1Z1 before changing its installation.",
+    installationInProgress: "An installation is already in progress.",
+    clientNotReady: "The ROTK client is not ready.",
+    identityLocked: "Close H1Z1 before changing the ROTK account key.",
+    keyRequired: "Add the ROTK launcher key from your account before playing.",
+    unauthorizedLink: "This ROTK link is not allowed.",
+    sourceDialog: {
+      title: "Choose the H1Z1 client",
+      message: "Standalone clients are used directly. Steam clients are copied before ROTK configures them.",
+      button: "Select client",
+    },
+    destinationDialog: {
+      title: "Where should the independent ROTK installation be created?",
+      message: (directory: string) => `The launcher will create a ${directory} subfolder.`,
+      button: "Install ROTK here",
+    },
+    startupTitle: "ROTK Launcher could not start",
+    startupSafety: "No H1Z1 files were modified.",
+    launcherError: (id: string, message: string) => `Launcher error ${id}: ${message}`,
+  },
+  fr: {
+    unexpectedError: "Une erreur inattendue est survenue.",
+    installationCancelled: "Installation annulée.",
+    windowUnavailable: "Fenêtre indisponible.",
+    selectSourceFirst: "Choisis d’abord le client H1Z1.",
+    selectBoth: "Choisis où créer la copie indépendante.",
+    destinationNotNeeded: "Ce client isolé peut être utilisé directement.",
+    clientInUse: "Ferme H1Z1 avant de modifier son installation.",
+    installationInProgress: "Une installation est déjà en cours.",
+    clientNotReady: "Le client ROTK n’est pas prêt.",
+    identityLocked: "Ferme H1Z1 avant de modifier la clé de compte ROTK.",
+    keyRequired: "Ajoute la clé launcher de ton compte ROTK avant de jouer.",
+    unauthorizedLink: "Lien ROTK non autorisé.",
+    sourceDialog: {
+      title: "Choisir le client H1Z1",
+      message: "Un client isolé est utilisé directement. Un client Steam est copié avant d’être configuré par ROTK.",
+      button: "Sélectionner ce client",
+    },
+    destinationDialog: {
+      title: "Où créer l’installation ROTK indépendante ?",
+      message: (directory: string) => `Le launcher créera un sous-dossier ${directory}.`,
+      button: "Installer ROTK ici",
+    },
+    startupTitle: "ROTK Launcher ne peut pas démarrer",
+    startupSafety: "Aucun fichier H1Z1 n’a été modifié.",
+    launcherError: (id: string, message: string) => `Erreur launcher ${id} : ${message}`,
+  },
+} as const;
+
+const ENGLISH_ERRORS = new Map<string, string>([
+  ["Une erreur inattendue est survenue.", "An unexpected error occurred."],
+  ["Installation annulée.", "Installation cancelled."],
+  ["Installation annulée", "Installation cancelled."],
+  ["Impossible de résoudre le disque de destination.", "The destination drive could not be resolved."],
+  ["Le chemin doit être absolu.", "The path must be absolute."],
+  ["Les chemins réseau et chemins de périphérique ne sont pas acceptés.", "Network and device paths are not allowed."],
+  ["Le chemin contient un flux de fichier Windows non autorisé.", "The path contains an unauthorized Windows alternate data stream."],
+  ["Le dossier source H1Z1 est introuvable.", "The H1Z1 source folder could not be found."],
+  ["Une jonction ou un lien symbolique ne peut pas servir d’installation ROTK.", "A junction or symbolic link cannot be used as the ROTK installation."],
+  ["La racine d’un disque ne peut pas servir directement d’installation ROTK.", "A drive root cannot be used directly as the ROTK installation."],
+  ["La source Steam et l’installation ROTK doivent être dans deux arbres distincts.", "The Steam source and ROTK installation must be in separate directory trees."],
+  ["Le dossier temporaire de copie n’est pas sûr.", "The temporary copy directory is not safe."],
+  ["Le dossier source contient un nombre anormal de fichiers.", "The source folder contains an unusually large number of files."],
+  ["Le dossier ROTK existe déjà. Choisis un nouvel emplacement vide.", "The ROTK folder already exists. Choose a new empty location."],
+  ["H1Z1.exe a disparu pendant l’analyse du client.", "H1Z1.exe disappeared while the client was being scanned."],
+  ["L’installation ROTK est incomplète : son marqueur est introuvable.", "The ROTK installation is incomplete: its marker is missing."],
+  ["L’installation ROTK ne correspond plus à celle enregistrée par le launcher.", "The ROTK installation no longer matches the one saved by the launcher."],
+  ["H1Z1.exe est introuvable dans l’installation ROTK.", "H1Z1.exe could not be found in the ROTK installation."],
+  ["La sauvegarde de steam_api64.dll est absente. Réimporte le client.", "The steam_api64.dll backup is missing. Import the client again."],
+  ["H1Z1 est déjà lancé depuis cette installation.", "H1Z1 is already running from this installation."],
+  ["Installe d’abord le client ROTK.", "Install the ROTK client first."],
+  ["Windows n’a pas retourné l’identifiant du processus H1Z1.", "Windows did not return an H1Z1 process identifier."],
+  ["Cette version de H1Z1 n’est pas encore prise en charge par ROTK. Vérifie les fichiers du jeu dans Steam puis réessaie.", "This H1Z1 version is not supported by ROTK yet. Verify the game files in Steam and try again."],
+]);
+
+const FRENCH_ERRORS = new Map<string, string>([
+  ["Invalid ROTK session identity", "L’identité de session ROTK est invalide."],
+  ["Invalid ROTK player key", "La clé joueur ROTK est invalide."],
+  ["Secure ROTK key storage is unavailable on this Windows account", "Le stockage Windows sécurisé de la clé ROTK est indisponible sur ce compte."],
+  ["Unsupported launcher locale", "Langue du launcher non prise en charge."],
+]);
+
+const DYNAMIC_ENGLISH_ERRORS: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
+  [/^Client H1Z1 incomplet : (.+) est introuvable\.$/, (match) => `Incomplete H1Z1 client: ${match[1]} could not be found.`],
+  [/^ROTK ne peut pas jouer depuis un dossier « (.+) »\. Choisis un emplacement indépendant de Steam\.$/, (match) => `ROTK cannot run from a “${match[1]}” folder. Choose a location outside Steam.`],
+  [/^Cet emplacement renvoie physiquement vers « (.+) » et ne peut pas être utilisé\.$/, (match) => `This location physically resolves to “${match[1]}” and cannot be used.`],
+  [/^Le client source contient une jonction non sûre : (.+)$/, (match) => `The source client contains an unsafe junction: ${match[1]}`],
+  [/^Type de fichier source non pris en charge : (.+)$/, (match) => `Unsupported source file type: ${match[1]}`],
+  [/^Espace disque insuffisant : (.+) Go sont nécessaires\.$/, (match) => `Not enough disk space: ${match[1]} GB is required.`],
+  [/^La taille copiée de (.+) ne correspond pas à la source\.$/, (match) => `The copied size of ${match[1]} does not match the source.`],
+  [/^La copie de (.+) ne correspond pas à la source\.$/, (match) => `The copy of ${match[1]} does not match the source.`],
+  [/^Le fichier source (.+) a changé pendant la copie\.$/, (match) => `The source file ${match[1]} changed during the copy.`],
+  [/^Erreur launcher ([a-f0-9]+) : (.+)$/, (match) => `Launcher error ${match[1]}: ${match[2]}`],
+  [/^Erreur système \(([A-Z0-9_]+)\)\.$/, (match) => `System error (${match[1]}).`],
+];
+
+export function localizeServiceError(message: string, locale: AppLocale): string {
+  if (locale === "fr") return FRENCH_ERRORS.get(message) ?? message;
+  const exact = ENGLISH_ERRORS.get(message);
+  if (exact) return exact;
+  for (const [pattern, translate] of DYNAMIC_ENGLISH_ERRORS) {
+    const match = message.match(pattern);
+    if (match) return translate(match);
+  }
+  return message;
+}

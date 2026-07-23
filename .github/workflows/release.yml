@@ -1,0 +1,178 @@
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  package:
+    name: Build public Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 40
+    environment: release
+
+    env:
+      CI: "true"
+      EXPECTED_WINDOWS_PUBLISHER: ${{ vars.WINDOWS_PUBLISHER_SUBJECT }}
+
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Validate release source and version
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+            $expectedTag = "v$packageVersion"
+            if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+              throw "Tag $env:GITHUB_REF_NAME does not match package version $packageVersion."
+            }
+          } elseif ($env:GITHUB_REF_NAME -ne "main") {
+            throw "Manual public releases must run from main."
+          }
+
+          git merge-base --is-ancestor $env:GITHUB_SHA origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw "The release commit is not part of origin/main."
+          }
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.15.2
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Require the Windows signing identity
+        shell: pwsh
+        env:
+          WIN_CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK)) {
+            throw "WINDOWS_CERTIFICATE_BASE64 is required for a public release."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) {
+            throw "WINDOWS_CERTIFICATE_PASSWORD is required for a public release."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:EXPECTED_WINDOWS_PUBLISHER)) {
+            throw "The WINDOWS_PUBLISHER_SUBJECT release environment variable is required."
+          }
+
+      - name: Rebuild and verify the open-source shim
+        shell: pwsh
+        run: |
+          npm run build:shim
+          $rebuilt = Join-Path $env:GITHUB_WORKSPACE "native\steamshim\dist\steam_api64.dll"
+          $bundled = Join-Path $env:GITHUB_WORKSPACE "resources\patches\steam_api64.dll"
+          $rebuiltHash = (Get-FileHash -LiteralPath $rebuilt -Algorithm SHA256).Hash
+          $bundledHash = (Get-FileHash -LiteralPath $bundled -Algorithm SHA256).Hash
+          if ($rebuiltHash -ne $bundledHash) {
+            throw "Bundled shim does not match its public source: $bundledHash != $rebuiltHash"
+          }
+
+      - name: Test and build
+        run: npm run build
+
+      - name: Package NSIS installer
+        run: npx electron-builder --win nsis
+        env:
+          WIN_CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+
+      - name: Verify Authenticode signatures and timestamps
+        shell: pwsh
+        run: |
+          $targets = @(
+            Get-ChildItem -LiteralPath release -File -Filter "ROTK-Launcher-*.exe"
+            Get-Item -LiteralPath "release\win-unpacked\ROTK Launcher.exe"
+            Get-Item -LiteralPath "release\win-unpacked\resources\patches\steam_api64.dll"
+          )
+          if ($targets.Count -lt 3) {
+            throw "The signed installer, packaged launcher or runtime shim is missing."
+          }
+
+          $publisher = $null
+          foreach ($target in $targets) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $target.FullName
+            if ($signature.Status -ne "Valid" -or -not $signature.SignerCertificate) {
+              throw "Invalid Authenticode signature on $($target.Name): $($signature.Status)"
+            }
+            if (-not $signature.TimeStamperCertificate) {
+              throw "The Authenticode signature on $($target.Name) has no trusted timestamp."
+            }
+            if ($null -eq $publisher) {
+              $publisher = $signature.SignerCertificate.Subject
+            } elseif ($publisher -ne $signature.SignerCertificate.Subject) {
+              throw "Release files were signed by different publisher identities."
+            }
+          }
+          if ($publisher -ne $env:EXPECTED_WINDOWS_PUBLISHER) {
+            throw "Unexpected Authenticode publisher: $publisher"
+          }
+          "Authenticode publisher: $publisher" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Generate SHA-256 checksums
+        shell: pwsh
+        run: |
+          $artifacts = Get-ChildItem -LiteralPath release -File |
+            Where-Object { $_.Name -match '\.(exe|blockmap)$' } |
+            Sort-Object Name
+          if (-not $artifacts) { throw "No release artifact was generated." }
+          $lines = foreach ($artifact in $artifacts) {
+            $hash = (Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash *$($artifact.Name)"
+          }
+          $lines | Set-Content -LiteralPath release\SHA256SUMS.txt -Encoding ascii
+
+      - name: Attest installer provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: release/ROTK-Launcher-*.exe
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rotk-launcher-release-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            release/ROTK-Launcher-*.exe
+            release/ROTK-Launcher-*.exe.blockmap
+            release/SHA256SUMS.txt
+
+      - name: Create a draft GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $releaseFiles = @(
+            Get-ChildItem -LiteralPath release -File |
+              Where-Object { $_.Name -match '\.(exe|blockmap)$' } |
+              Select-Object -ExpandProperty FullName
+          )
+          $releaseFiles += (Resolve-Path -LiteralPath release\SHA256SUMS.txt).Path
+          gh release create $env:GITHUB_REF_NAME @releaseFiles `
+            --verify-tag `
+            --generate-notes `
+            --draft `
+            --title "ROTK Launcher $env:GITHUB_REF_NAME"

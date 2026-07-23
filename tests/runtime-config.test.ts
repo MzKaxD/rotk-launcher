@@ -1,0 +1,53 @@
+import { describe, expect, it } from "vitest";
+import { gameLauncherInternals } from "../electron/services/game-launcher.js";
+import { DEFAULT_RUNTIME_CONFIG, serverList } from "../electron/services/runtime-config.js";
+
+describe("public ROTK runtime", () => {
+  it("targets the OVH gateway and every public login listener", () => {
+    expect(DEFAULT_RUNTIME_CONFIG.environment).toBe("production");
+    expect(DEFAULT_RUNTIME_CONFIG.gatewayOrigin).toBe("http://51.255.160.224");
+    expect(serverList(DEFAULT_RUNTIME_CONFIG)).toBe(
+      "51.255.160.224:20042;51.255.160.224:20043;51.255.160.224:20044;51.255.160.224:20045",
+    );
+  });
+
+  it("passes only the short ticket and bounded OVH endpoints to H1Z1", () => {
+    const durableKey = "0123456789abcdef0123456789abcdef";
+    const launchTicket = "T".repeat(43);
+    const args = gameLauncherInternals.buildLaunchArguments(
+      launchTicket,
+      DEFAULT_RUNTIME_CONFIG,
+      "C:\\ROTK\\logs",
+      "install-1",
+      "http://127.0.0.1:49152/rest/auth/session/create",
+    );
+
+    expect(args).toContain(`sessionid=${launchTicket}`);
+    expect(args.join(" ")).not.toContain(durableKey);
+    expect(args).toContain(
+      `server=51.255.160.224:20042;51.255.160.224:20043;51.255.160.224:20044;51.255.160.224:20045`,
+    );
+    expect(args).toContain(
+      "SteamGatewayUrl=http://127.0.0.1:49152/rest/auth/session/create",
+    );
+    expect(args).toContain("CommandQueue:motd_uri=http://51.255.160.224/");
+    expect(args.some((argument) => (
+      argument.includes("51.255.160.224/rest/auth/session/create")
+    ))).toBe(false);
+  });
+
+  it("uses only the account-service Steam identity for the shim environment", () => {
+    const environment = gameLauncherInternals.sanitizedEnvironment({
+      ticket: "T".repeat(43),
+      expiresAt: "2026-07-21T12:00:00.000Z",
+      rotkId: "123e4567-e89b-42d3-a456-426614174000",
+      gameAccountGuid: "42",
+      steamId: "76561198000000001",
+      displayName: "ROTK Player",
+    });
+
+    expect(environment.STEAMID).toBe("76561198000000001");
+    expect(environment.H1Z1_OVERRIDE_STEAMID).toBe("76561198000000001");
+    expect(environment.H1Z1_OVERRIDE_PERSONA).toBe("ROTK Player");
+  });
+});

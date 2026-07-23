@@ -1,0 +1,24 @@
+import { describe, expect, it } from "vitest";
+import { localizeServiceError } from "../electron/i18n";
+import { normalizeAppLocale } from "../shared/locale";
+
+describe("launcher locales", () => {
+  it("defaults unknown or missing preferences to English", () => {
+    expect(normalizeAppLocale(undefined)).toBe("en");
+    expect(normalizeAppLocale("de")).toBe("en");
+    expect(normalizeAppLocale("fr")).toBe("fr");
+  });
+
+  it("localizes known and parameterized service errors in English", () => {
+    expect(localizeServiceError("Le chemin doit être absolu.", "en")).toBe("The path must be absolute.");
+    expect(
+      localizeServiceError("Client H1Z1 incomplet : H1Z1.exe est introuvable.", "en"),
+    ).toBe("Incomplete H1Z1 client: H1Z1.exe could not be found.");
+  });
+
+  it("localizes internal English errors for the French interface", () => {
+    expect(localizeServiceError("Invalid ROTK session identity", "fr")).toBe(
+      "L’identité de session ROTK est invalide.",
+    );
+  });
+});

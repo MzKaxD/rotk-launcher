@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rotk.app/contracts/runtime-manifest.v1.schema.json",
+  "title": "ROTK signed runtime manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "environment",
+    "issuedAt",
+    "expiresAt",
+    "minLauncherVersion",
+    "gatewayOrigin",
+    "loginEndpoints",
+    "websiteOrigin",
+    "keyId",
+    "signature"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": { "const": "production" },
+    "issuedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "minLauncherVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "gatewayOrigin": { "type": "string", "pattern": "^https://" },
+    "loginEndpoints": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["host", "port"],
+        "properties": {
+          "host": { "type": "string", "minLength": 1, "maxLength": 253 },
+          "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        }
+      }
+    },
+    "websiteOrigin": { "const": "https://rotk.app" },
+    "keyId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "signature": { "type": "string", "contentEncoding": "base64" }
+  }
+}

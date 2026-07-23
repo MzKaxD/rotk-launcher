@@ -1,0 +1,166 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+
+export interface InstalledClientConfig {
+  installId: string;
+  clientBuildId: string;
+  root: string;
+  sourceRoot: string;
+  installedAt: string;
+  criticalHashes: Record<string, string>;
+}
+
+export interface LauncherConfig {
+  schemaVersion: 1;
+  installation?: InstalledClientConfig;
+}
+
+interface StoredConfigCandidate {
+  path: string;
+  config: LauncherConfig;
+  needsRewrite: boolean;
+}
+
+export type InstallationMigrationValidator = (installation: InstalledClientConfig) => Promise<boolean>;
+
+function freshConfig(): LauncherConfig {
+  return { schemaVersion: 1 };
+}
+
+function isValidConfig(value: unknown): value is LauncherConfig {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<LauncherConfig>;
+  const installation = candidate.installation;
+  const installationIsValid =
+    installation === undefined ||
+    (typeof installation.installId === "string" &&
+      typeof installation.clientBuildId === "string" &&
+      typeof installation.root === "string" &&
+      typeof installation.sourceRoot === "string" &&
+      typeof installation.installedAt === "string" &&
+      installation.criticalHashes !== null &&
+      typeof installation.criticalHashes === "object");
+  return (
+    candidate.schemaVersion === 1 &&
+    installationIsValid
+  );
+}
+
+function withoutLegacyIdentity(value: LauncherConfig): LauncherConfig {
+  return value.installation
+    ? { schemaVersion: 1, installation: value.installation }
+    : { schemaVersion: 1 };
+}
+
+export class ConfigStore {
+  private readonly configPath: string;
+  private readonly backupPath: string;
+  private readonly legacyConfigPaths: readonly string[];
+  private readonly validateMigratedInstallation: InstallationMigrationValidator | null;
+  private config: LauncherConfig | null = null;
+
+  constructor(
+    userDataDirectory: string,
+    legacyUserDataDirectories: readonly string[] = [],
+    validateMigratedInstallation: InstallationMigrationValidator | null = null,
+  ) {
+    this.configPath = join(userDataDirectory, "config.v1.json");
+    this.backupPath = join(userDataDirectory, "config.v1.backup.json");
+    this.validateMigratedInstallation = validateMigratedInstallation;
+    this.legacyConfigPaths = legacyUserDataDirectories.flatMap((directory) => [
+      join(directory, "config.v1.json"),
+      join(directory, "config.v1.backup.json"),
+    ]);
+  }
+
+  async load(): Promise<LauncherConfig> {
+    if (this.config) return this.config;
+
+    const candidates = [this.configPath, this.backupPath, ...this.legacyConfigPaths];
+    let firstValid: StoredConfigCandidate | null = null;
+    let selected: StoredConfigCandidate | null = null;
+
+    for (const path of [...new Set(candidates)]) {
+      try {
+        const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+        if (!isValidConfig(parsed)) continue;
+        const candidate = {
+          path,
+          config: withoutLegacyIdentity(parsed),
+          needsRewrite: Object.prototype.hasOwnProperty.call(parsed, "identity"),
+        };
+        if (
+          path !== this.configPath
+          && candidate.config.installation
+          && this.validateMigratedInstallation
+          && !await this.validateMigratedInstallation(candidate.config.installation)
+        ) {
+          continue;
+        }
+        firstValid ??= candidate;
+        if (candidate.config.installation) {
+          selected = candidate;
+          break;
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT" || error instanceof SyntaxError) continue;
+        throw error;
+      }
+    }
+
+    selected ??= firstValid;
+    if (selected) {
+      if (selected.path !== this.configPath || selected.needsRewrite) {
+        await this.save(selected.config);
+        if (selected.path !== this.configPath && selected.needsRewrite) {
+          try {
+            await this.writeAtomic(selected.path, selected.config);
+          } catch {
+            await rm(selected.path, { force: true });
+          }
+        }
+      } else {
+        this.config = selected.config;
+        await this.writeBackup(selected.config);
+      }
+      return selected.config;
+    }
+
+    // Legacy configs could contain a player bearer. Replace unreadable state
+    // instead of retaining it under a forensic backup filename.
+    await rm(this.configPath, { force: true });
+    this.config = freshConfig();
+    await this.save(this.config);
+    return this.config;
+  }
+
+  async setInstallation(installation: InstalledClientConfig): Promise<LauncherConfig> {
+    const current = await this.load();
+    const next: LauncherConfig = { ...current, installation };
+    await this.save(next);
+    return next;
+  }
+
+  async save(next: LauncherConfig): Promise<void> {
+    await this.writeAtomic(this.configPath, next);
+    this.config = next;
+    await this.writeBackup(next);
+  }
+
+  private async writeBackup(next: LauncherConfig): Promise<void> {
+    try {
+      await this.writeAtomic(this.backupPath, next);
+    } catch {
+      // The canonical file is authoritative. A backup failure must not turn a
+      // completed multi-gigabyte client installation into a failed operation.
+    }
+  }
+
+  private async writeAtomic(path: string, next: LauncherConfig): Promise<void> {
+    await mkdir(dirname(path), { recursive: true });
+    const temporaryPath = `${path}.${randomUUID()}.tmp`;
+    await writeFile(temporaryPath, `${JSON.stringify(next, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+    await rename(temporaryPath, path);
+  }
+}
