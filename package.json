@@ -8,6 +8,7 @@
   "type": "module",
   "main": "dist-electron/electron/main.js",
   "scripts": {
+    "postinstall": "node node_modules/electron/install.js",
     "dev": "npm run build:electron && concurrently -k \"vite\" \"tsc -p electron/tsconfig.json --watch --preserveWatchOutput\" \"wait-on tcp:5173 dist-electron/electron/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "dev:isolated": "npm run build:electron && concurrently -k \"vite\" \"tsc -p electron/tsconfig.json --watch --preserveWatchOutput\" \"wait-on tcp:5173 dist-electron/electron/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 ROTK_USER_DATA_DIR=.dev-data electron .\"",
     "build:electron": "tsc -p electron/tsconfig.json && esbuild electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/electron/preload.cjs",
