@@ -27,6 +27,12 @@ export const MAIN_COPY = {
     startupTitle: "ROTK Launcher could not start",
     startupSafety: "No H1Z1 files were modified.",
     launcherError: (id: string, message: string) => `Launcher error ${id}: ${message}`,
+    update: {
+      unavailable: "Launcher updates are only available in the installed launcher.",
+      "no-update": "No launcher update is available yet.",
+      "not-downloaded": "The launcher update has not been downloaded yet.",
+      gameRunning: "Close H1Z1 before updating the launcher.",
+    },
   },
   fr: {
     unexpectedError: "Une erreur inattendue est survenue.",
@@ -54,6 +60,12 @@ export const MAIN_COPY = {
     startupTitle: "ROTK Launcher ne peut pas démarrer",
     startupSafety: "Aucun fichier H1Z1 n’a été modifié.",
     launcherError: (id: string, message: string) => `Erreur launcher ${id} : ${message}`,
+    update: {
+      unavailable: "Les mises à jour ne sont disponibles que depuis le launcher installé.",
+      "no-update": "Aucune mise à jour du launcher n’est disponible pour l’instant.",
+      "not-downloaded": "La mise à jour du launcher n’a pas encore été téléchargée.",
+      gameRunning: "Ferme H1Z1 avant de mettre à jour le launcher.",
+    },
   },
 } as const;
 
