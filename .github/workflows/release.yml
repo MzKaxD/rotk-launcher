@@ -98,7 +98,7 @@ jobs:
         run: npm run build
 
       - name: Package NSIS installer
-        run: npx electron-builder --win nsis --publish never
+        run: npx electron-builder --win nsis --publish never --config.forceCodeSigning=${{ steps.signing.outputs.signed }}
         env:
           WIN_CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
