@@ -24,6 +24,7 @@
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.2.8",
     "@fontsource/inter": "^5.2.8",
+    "electron-updater": "^6.8.9",
     "framer-motion": "^12.42.2",
     "lucide-react": "^1.25.0",
     "react": "^19.2.7",
@@ -53,6 +54,13 @@
     "directories": {
       "output": "release"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "MzKaxD",
+        "repo": "rotk-launcher"
+      }
+    ],
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
@@ -65,19 +73,27 @@
       {
         "from": "resources/patches",
         "to": "patches",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
       "icon": "build/icon.ico",
-      "signExts": ["steam_api64.dll"],
+      "signExts": [
+        "steam_api64.dll"
+      ],
       "signtoolOptions": {
-        "signingHashAlgorithms": ["sha256"]
+        "signingHashAlgorithms": [
+          "sha256"
+        ]
       },
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "verifyUpdateCodeSignature": true

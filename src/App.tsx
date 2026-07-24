@@ -4,6 +4,7 @@ import { InstallPanel } from "./components/InstallPanel";
 import { LauncherFooter } from "./components/LauncherFooter";
 import { NewsCarousel } from "./components/NewsCarousel";
 import { PlayerIdentityPanel } from "./components/PlayerIdentityPanel";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { WindowChrome } from "./components/WindowChrome";
 import { useI18n } from "./i18n";
 
@@ -87,6 +88,12 @@ export default function App() {
           <button type="button" aria-label={copy.app.closeError} onClick={() => setTransientError(null)}>×</button>
         </div>
       )}
+      <UpdateBanner
+        snapshot={snapshot}
+        busy={busy}
+        onDownload={() => void perform(() => window.rotk.downloadLauncherUpdate())}
+        onInstall={() => void perform(() => window.rotk.installLauncherUpdate())}
+      />
       <LauncherFooter
         snapshot={snapshot}
         busy={busy}

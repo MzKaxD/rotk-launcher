@@ -48,6 +48,22 @@ export interface PlayerIdentitySummary {
   playerKey: string | null;
 }
 
+export type LauncherUpdateStatus =
+  | "idle"
+  | "checking"
+  | "up-to-date"
+  | "update-available"
+  | "downloading"
+  | "downloaded"
+  | "error";
+
+export interface LauncherUpdateSummary {
+  status: LauncherUpdateStatus;
+  availableVersion: string | null;
+  progressPercent: number | null;
+  error: string | null;
+}
+
 export interface LauncherSnapshot {
   appVersion: string;
   phase: LauncherPhase;
@@ -56,6 +72,7 @@ export interface LauncherSnapshot {
   updates: PublishedUpdate[];
   runtime: RuntimeSummary;
   playerIdentity: PlayerIdentitySummary;
+  launcherUpdate: LauncherUpdateSummary;
   progress: InstallProgress | null;
   error: string | null;
   gamePid: number | null;
@@ -80,6 +97,9 @@ export interface RotkLauncherApi {
   cancelInstall(): Promise<void>;
   play(): Promise<OperationResult<{ pid: number }>>;
   openWebsite(path: string): Promise<OperationResult>;
+  checkLauncherUpdate(): Promise<void>;
+  downloadLauncherUpdate(): Promise<OperationResult>;
+  installLauncherUpdate(): Promise<OperationResult>;
   minimizeWindow(): Promise<void>;
   closeWindow(): Promise<void>;
   onSnapshot(listener: (snapshot: LauncherSnapshot) => void): () => void;
@@ -96,6 +116,9 @@ export const IPC_CHANNELS = {
   cancelInstall: "launcher:cancel-install",
   play: "launcher:play",
   openWebsite: "launcher:open-website",
+  checkLauncherUpdate: "launcher:update-check",
+  downloadLauncherUpdate: "launcher:update-download",
+  installLauncherUpdate: "launcher:update-install",
   minimizeWindow: "window:minimize",
   closeWindow: "window:close",
   snapshotChanged: "launcher:snapshot-changed",
