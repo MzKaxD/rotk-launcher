@@ -34,6 +34,8 @@ import { GameLauncher, validateInstalledClient } from "./services/game-launcher.
 import { classifyClientSource, validateInstallDestination } from "./services/path-policy.js";
 import { DEFAULT_RUNTIME_CONFIG } from "./services/runtime-config.js";
 import { UpdateFeedService } from "./services/update-feed.js";
+import { LauncherUpdateService } from "./services/launcher-update.js";
+import electronUpdater from "electron-updater";
 import { localizeServiceError, MAIN_COPY } from "./i18n.js";
 import {
   identityFromPlayerKey,
@@ -65,7 +67,9 @@ let mainWindow: BrowserWindow | null = null;
 let configStore: ConfigStore;
 let playerKeyStore: PlayerKeyStore;
 let updateFeed: UpdateFeedService;
+let launcherUpdate: LauncherUpdateService;
 const gameLauncher = new GameLauncher();
+const LAUNCHER_UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000;
 let installAbortController: AbortController | null = null;
 let phase: LauncherPhase = "unconfigured";
 let sourceRoot: string | null = null;
@@ -111,6 +115,7 @@ async function snapshot(): Promise<LauncherSnapshot> {
       websiteOrigin: DEFAULT_RUNTIME_CONFIG.websiteOrigin,
     },
     playerIdentity: identitySummary(),
+    launcherUpdate: launcherUpdate.state,
     progress,
     error: lastErrorRaw ? localizeServiceError(lastErrorRaw, currentLocale) : null,
     gamePid,
@@ -411,6 +416,32 @@ function registerIpc(): void {
     }),
   );
 
+  ipcMain.handle(
+    IPC_CHANNELS.checkLauncherUpdate,
+    trustedHandler(async () => launcherUpdate.check()),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.downloadLauncherUpdate,
+    trustedHandler(async (): Promise<OperationResult> => {
+      const failure = launcherUpdate.download();
+      if (!failure) return { ok: true };
+      return { ok: false, error: MAIN_COPY[currentLocale].update[failure] };
+    }),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.installLauncherUpdate,
+    trustedHandler(async (): Promise<OperationResult> => {
+      if (gameLauncher.isRunning() || phase === "launching" || phase === "running") {
+        return { ok: false, error: MAIN_COPY[currentLocale].update.gameRunning };
+      }
+      const failure = launcherUpdate.install();
+      if (!failure) return { ok: true };
+      return { ok: false, error: MAIN_COPY[currentLocale].update[failure] };
+    }),
+  );
+
   ipcMain.handle(IPC_CHANNELS.minimizeWindow, trustedHandler(async () => mainWindow?.minimize()));
   ipcMain.handle(IPC_CHANNELS.closeWindow, trustedHandler(async () => mainWindow?.close()));
 }
@@ -491,10 +522,18 @@ async function initialize(): Promise<void> {
       lastErrorRaw = rawErrorMessage(error);
     }
   }
+  launcherUpdate = new LauncherUpdateService({
+    // In development there is no installed package to update against;
+    // the updater stays inert and the snapshot reports "idle".
+    updater: app.isPackaged ? electronUpdater.autoUpdater : null,
+    onChange: () => void broadcastSnapshot(),
+  });
   registerIpc();
   mainWindow = createWindow();
   updates = await updateFeed.getLatest();
   await broadcastSnapshot();
+  void launcherUpdate.check();
+  setInterval(() => void launcherUpdate.check(), LAUNCHER_UPDATE_CHECK_INTERVAL_MS);
 }
 
 app.on("second-instance", () => {

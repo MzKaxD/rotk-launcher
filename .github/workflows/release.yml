@@ -98,7 +98,7 @@ jobs:
         run: npm run build
 
       - name: Package NSIS installer
-        run: npx electron-builder --win nsis
+        run: npx electron-builder --win nsis --publish never
         env:
           WIN_CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
@@ -170,6 +170,7 @@ jobs:
           path: |
             release/ROTK-Launcher-*.exe
             release/ROTK-Launcher-*.exe.blockmap
+            release/latest.yml
             release/SHA256SUMS.txt
 
       - name: Create a draft GitHub release
@@ -184,6 +185,8 @@ jobs:
               Select-Object -ExpandProperty FullName
           )
           $releaseFiles += (Resolve-Path -LiteralPath release\SHA256SUMS.txt).Path
+          # latest.yml lets the in-app updater resolve the newest published version.
+          $releaseFiles += (Resolve-Path -LiteralPath release\latest.yml).Path
           gh release create $env:GITHUB_REF_NAME @releaseFiles `
             --verify-tag `
             --generate-notes `

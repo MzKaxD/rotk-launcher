@@ -84,6 +84,17 @@ export interface Copy {
     hide: string;
     close: string;
   };
+  update: {
+    available: (version: string) => string;
+    availableDetail: string;
+    download: string;
+    downloading: string;
+    restart: string;
+    restartDetail: string;
+    failed: string;
+    retry: string;
+    dismiss: string;
+  };
   install: {
     notSelected: string;
     closeSetup: string;
@@ -184,6 +195,17 @@ const COPY: Record<AppLocale, Copy> = {
       show: "Show ROTK account key",
       hide: "Hide ROTK account key",
       close: "Close ROTK account authentication",
+    },
+    update: {
+      available: (version) => `LAUNCHER UPDATE ${version} AVAILABLE`,
+      availableDetail: "Downloaded securely from the official GitHub releases.",
+      download: "UPDATE",
+      downloading: "DOWNLOADING UPDATE",
+      restart: "RESTART TO INSTALL",
+      restartDetail: "The launcher restarts and installs the signed update.",
+      failed: "UPDATE DOWNLOAD FAILED",
+      retry: "RETRY",
+      dismiss: "Hide update notification",
     },
     install: {
       notSelected: "NOT SELECTED",
@@ -294,6 +316,17 @@ const COPY: Record<AppLocale, Copy> = {
       show: "Afficher la clé de compte ROTK",
       hide: "Masquer la clé de compte ROTK",
       close: "Fermer l’authentification du compte ROTK",
+    },
+    update: {
+      available: (version) => `MISE À JOUR ${version} DISPONIBLE`,
+      availableDetail: "Téléchargée de façon sécurisée depuis les releases GitHub officielles.",
+      download: "METTRE À JOUR",
+      downloading: "TÉLÉCHARGEMENT",
+      restart: "REDÉMARRER POUR INSTALLER",
+      restartDetail: "Le launcher redémarre et installe la mise à jour signée.",
+      failed: "ÉCHEC DU TÉLÉCHARGEMENT",
+      retry: "RÉESSAYER",
+      dismiss: "Masquer la notification de mise à jour",
     },
     install: {
       notSelected: "NON SÉLECTIONNÉ",
