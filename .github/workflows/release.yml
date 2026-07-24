@@ -61,21 +61,26 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Require the Windows signing identity
+      - name: Detect the Windows signing configuration
+        id: signing
         shell: pwsh
         env:
           WIN_CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK)) {
-            throw "WINDOWS_CERTIFICATE_BASE64 is required for a public release."
+          $signed = -not [string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK)
+          if ($signed) {
+            if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) {
+              throw "WINDOWS_CERTIFICATE_PASSWORD is required when WINDOWS_CERTIFICATE_BASE64 is set."
+            }
+            if ([string]::IsNullOrWhiteSpace($env:EXPECTED_WINDOWS_PUBLISHER)) {
+              throw "The WINDOWS_PUBLISHER_SUBJECT release environment variable is required when signing."
+            }
+          } else {
+            Write-Warning "No Authenticode certificate is configured: this release will be UNSIGNED."
+            "⚠️ No Authenticode certificate is configured — this release is **unsigned**. Verify downloads against SHA256SUMS.txt and the GitHub provenance attestation." >> $env:GITHUB_STEP_SUMMARY
           }
-          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) {
-            throw "WINDOWS_CERTIFICATE_PASSWORD is required for a public release."
-          }
-          if ([string]::IsNullOrWhiteSpace($env:EXPECTED_WINDOWS_PUBLISHER)) {
-            throw "The WINDOWS_PUBLISHER_SUBJECT release environment variable is required."
-          }
+          "signed=$($signed.ToString().ToLower())" >> $env:GITHUB_OUTPUT
 
       - name: Rebuild and verify the open-source shim
         shell: pwsh
@@ -98,8 +103,10 @@ jobs:
           WIN_CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
 
-      - name: Verify Authenticode signatures and timestamps
+      - name: Verify packaged artifacts and Authenticode signatures
         shell: pwsh
+        env:
+          RELEASE_SIGNED: ${{ steps.signing.outputs.signed }}
         run: |
           $targets = @(
             Get-ChildItem -LiteralPath release -File -Filter "ROTK-Launcher-*.exe"
@@ -107,7 +114,13 @@ jobs:
             Get-Item -LiteralPath "release\win-unpacked\resources\patches\steam_api64.dll"
           )
           if ($targets.Count -lt 3) {
-            throw "The signed installer, packaged launcher or runtime shim is missing."
+            throw "The installer, packaged launcher or runtime shim is missing."
+          }
+
+          if ($env:RELEASE_SIGNED -ne "true") {
+            Write-Warning "Unsigned release: skipping Authenticode verification."
+            "Authenticode publisher: none (unsigned release)" >> $env:GITHUB_STEP_SUMMARY
+            exit 0
           }
 
           $publisher = $null

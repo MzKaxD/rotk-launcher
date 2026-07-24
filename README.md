@@ -86,7 +86,7 @@ npm run build:shim
 Copy-Item native\steamshim\dist\steam_api64.dll resources\patches\steam_api64.dll -Force
 ```
 
-Puis générer une release Windows signée (un certificat Authenticode doit être configuré) :
+Puis générer une release Windows (signée si un certificat Authenticode est configuré, non signée sinon) :
 
 ```powershell
 npm run dist
@@ -125,11 +125,11 @@ Les captures du jeu ne sont pas versionnées dans ce dépôt. Voir [ASSET_LICENS
 
 ## Releases vérifiables
 
-Le workflow de release reconstruit le shim depuis sa source C, exécute les tests, génère l’installateur Windows et publie ses sommes SHA-256 ainsi qu’une attestation de provenance GitHub. Une release publique échoue désormais si l’installateur ou l’exécutable principal n’a pas une signature Authenticode valide, cohérente et horodatée.
+Le workflow de release reconstruit le shim depuis sa source C, exécute les tests, génère l’installateur Windows et publie ses sommes SHA-256 ainsi qu’une attestation de provenance GitHub. Le workflow refuse un tag différent de la version `package.json`, un commit extérieur à `main` ou un shim ne correspondant pas à sa source publique.
 
-L’environnement GitHub protégé `release` doit contenir les secrets `WINDOWS_CERTIFICATE_BASE64` et `WINDOWS_CERTIFICATE_PASSWORD`, ainsi que la variable `WINDOWS_PUBLISHER_SUBJECT` égale au sujet Authenticode exact du certificat. Les secrets ne sont exposés qu’à l’étape de packaging. Le workflow refuse aussi un tag différent de la version `package.json`, un commit extérieur à `main`, une identité d’éditeur inattendue, un timestamp absent ou un shim non signé.
+La signature Authenticode est optionnelle. Si l’environnement GitHub `release` contient les secrets `WINDOWS_CERTIFICATE_BASE64` et `WINDOWS_CERTIFICATE_PASSWORD` ainsi que la variable `WINDOWS_PUBLISHER_SUBJECT` (le sujet Authenticode exact du certificat), la release est signée et le workflow échoue si l’installateur, l’exécutable principal ou le shim n’a pas une signature valide, horodatée et cohérente avec l’éditeur attendu. Les secrets ne sont exposés qu’aux étapes de détection et de packaging.
 
-Un certificat public délivré après validation de l’identité de l’éditeur est requis : un certificat auto-signé ne retire pas l’avertissement Windows. La signature affiche un éditeur vérifié et permet d’accumuler une réputation SmartScreen entre les versions, mais Microsoft peut encore avertir lors des premiers téléchargements d’un nouvel éditeur.
+Sans certificat configuré, la release est publiée non signée : le résumé du run l’indique explicitement, et les téléchargements se vérifient via `SHA256SUMS.txt` et l’attestation de provenance GitHub. Windows SmartScreen affichera alors un avertissement « Éditeur inconnu » à l’installation. Un certificat public délivré après validation de l’identité de l’éditeur est nécessaire pour le retirer : un certificat auto-signé n’y change rien. Pour un projet open source, [SignPath Foundation](https://signpath.org/) offre une signature gratuite après candidature.
 
 ## Contribuer et signaler une faille
 
