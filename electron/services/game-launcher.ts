@@ -144,11 +144,11 @@ export class GameLauncher {
 
     // The durable website key reaches only the HTTPS account service. H1Z1
     // receives a short ticket and the Steam identity authenticated by it.
-    const launchIdentity = await createLaunchTicket(
+    let launchIdentity = await createLaunchTicket(
       request.identity.playerKey,
       request.runtime.launchTicketUrl,
     );
-    const sessionGateway = await startLocalSessionGateway(launchIdentity.ticket);
+    let sessionGateway = await startLocalSessionGateway(launchIdentity.ticket);
 
     try {
       await prepareClient(
@@ -158,6 +158,27 @@ export class GameLauncher {
         launchIdentity,
       );
 
+      // Client preparation may outlive the short launch ticket on a first run
+      // or a slow disk. Refresh only after that expensive work, then rewrite
+      // the identity-bound local gateway/configuration before spawning H1Z1.
+      try {
+        assertLaunchTicketFresh(launchIdentity.expiresAt);
+      } catch {
+        await sessionGateway.close().catch(() => undefined);
+        launchIdentity = await createLaunchTicket(
+          request.identity.playerKey,
+          request.runtime.launchTicketUrl,
+        );
+        sessionGateway = await startLocalSessionGateway(launchIdentity.ticket);
+        await prepareClient(
+          request,
+          installationRoot,
+          sessionGateway.createSessionUrl,
+          launchIdentity,
+        );
+        assertLaunchTicketFresh(launchIdentity.expiresAt);
+      }
+
       const args = buildLaunchArguments(
         launchIdentity.ticket,
         request.runtime,
@@ -165,7 +186,6 @@ export class GameLauncher {
         installation.installId,
         sessionGateway.createSessionUrl,
       );
-      assertLaunchTicketFresh(launchIdentity.expiresAt);
 
       const executable = join(installationRoot, "H1Z1.exe");
       const child = spawn(executable, args, {
