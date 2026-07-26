@@ -38,10 +38,6 @@ describe("public ROTK runtime", () => {
 
   it("uses only the account-service Steam identity for the shim environment", () => {
     const environment = gameLauncherInternals.sanitizedEnvironment({
-      ticket: "T".repeat(43),
-      expiresAt: "2026-07-21T12:00:00.000Z",
-      rotkId: "123e4567-e89b-42d3-a456-426614174000",
-      gameAccountGuid: "42",
       steamId: "76561198000000001",
       displayName: "ROTK Player",
     });
