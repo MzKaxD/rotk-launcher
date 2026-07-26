@@ -7,14 +7,20 @@ const STEAM_ID_PATTERN = /^\d{17}$/;
 const DECIMAL_ID_PATTERN = /^[1-9]\d{0,18}$/;
 const MAX_SIGNED_63_BIT = 9_223_372_036_854_775_807n;
 const MINIMUM_TICKET_LIFETIME_MS = 10_000;
+const MAXIMUM_SERVER_TICKET_LIFETIME_MS = 10 * 60_000;
 
 export interface LaunchTicketIdentity {
-  ticket: string;
-  expiresAt: string;
-  rotkId: string;
-  gameAccountGuid: string;
-  steamId: string;
-  displayName: string;
+  readonly ticket: string;
+  readonly issuedAt: string;
+  readonly expiresAt: string;
+  /** Monotonic receipt time; never derived from the workstation wall clock. */
+  readonly receivedAtMonotonicMs: number;
+  /** Conservative remaining lifetime at receipt, based on authority timestamps. */
+  readonly initialRemainingLifetimeMs: number;
+  readonly rotkId: string;
+  readonly gameAccountGuid: string;
+  readonly steamId: string;
+  readonly displayName: string;
 }
 
 interface TicketRequestOptions {
@@ -37,21 +43,64 @@ function validateEndpoint(value: string): URL {
 }
 
 export function assertLaunchTicketFresh(
-  expiresAt: string,
+  identity: Pick<
+    LaunchTicketIdentity,
+    "receivedAtMonotonicMs" | "initialRemainingLifetimeMs"
+  >,
   minimumLifetimeMs = MINIMUM_TICKET_LIFETIME_MS,
+  nowMonotonicMs = performance.now(),
 ): void {
-  const expiresAtMs = Date.parse(expiresAt);
-  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now() + minimumLifetimeMs) {
+  if (
+    !Number.isFinite(minimumLifetimeMs)
+    || minimumLifetimeMs < 0
+    || minimumLifetimeMs > MAXIMUM_SERVER_TICKET_LIFETIME_MS
+    || !Number.isFinite(nowMonotonicMs)
+    || !Number.isFinite(identity.receivedAtMonotonicMs)
+    || !Number.isFinite(identity.initialRemainingLifetimeMs)
+    || identity.initialRemainingLifetimeMs <= 0
+    || identity.initialRemainingLifetimeMs > MAXIMUM_SERVER_TICKET_LIFETIME_MS
+  ) {
+    throw new Error("Invalid ROTK launch ticket freshness check");
+  }
+  const elapsedSinceReceiptMs = Math.max(
+    0,
+    nowMonotonicMs - identity.receivedAtMonotonicMs,
+  );
+  if (identity.initialRemainingLifetimeMs - elapsedSinceReceiptMs <= minimumLifetimeMs) {
     throw new Error("The ROTK launch ticket expires too soon");
   }
 }
 
-function parseTicketResponse(value: unknown): LaunchTicketIdentity {
+function parseCanonicalAuthorityTimestamp(value: string): number {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return Number.NaN;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value
+    ? parsed
+    : Number.NaN;
+}
+
+interface TicketResponseTiming {
+  readonly requestStartedAtMonotonicMs: number;
+  readonly receivedAtMonotonicMs: number;
+}
+
+function parseTicketResponse(
+  value: unknown,
+  timing: TicketResponseTiming = {
+    requestStartedAtMonotonicMs: performance.now(),
+    receivedAtMonotonicMs: performance.now(),
+  },
+): LaunchTicketIdentity {
   if (!value || typeof value !== "object") throw new Error("Invalid response from the ROTK account service");
   const response = value as Record<string, unknown>;
+  const issuedAt = typeof response.issuedAt === "string" ? response.issuedAt : "";
   const expiresAt = typeof response.expiresAt === "string" ? response.expiresAt : "";
   const displayName = typeof response.displayName === "string" ? response.displayName.trim() : "";
   const gameAccountGuid = typeof response.gameAccountGuid === "string" ? response.gameAccountGuid : "";
+  const issuedAtMs = parseCanonicalAuthorityTimestamp(issuedAt);
+  const expiresAtMs = parseCanonicalAuthorityTimestamp(expiresAt);
+  const requestElapsedMs = timing.receivedAtMonotonicMs - timing.requestStartedAtMonotonicMs;
+  const serverTicketLifetimeMs = expiresAtMs - issuedAtMs;
   if (
     response.ok !== true
     || !isValidLaunchTicket(response.ticket)
@@ -62,20 +111,34 @@ function parseTicketResponse(value: unknown): LaunchTicketIdentity {
     || displayName.length < 1
     || displayName.length > 32
     || /[\u0000-\u001f\u007f]/u.test(displayName)
+    || !Number.isFinite(issuedAtMs)
+    || !Number.isFinite(expiresAtMs)
+    || !Number.isFinite(timing.requestStartedAtMonotonicMs)
+    || !Number.isFinite(timing.receivedAtMonotonicMs)
+    || requestElapsedMs < 0
+    || serverTicketLifetimeMs <= 0
+    || serverTicketLifetimeMs > MAXIMUM_SERVER_TICKET_LIFETIME_MS
   ) {
     throw new Error("Invalid response from the ROTK account service");
   }
-  assertLaunchTicketFresh(expiresAt);
-  return {
+  // The authority-issued interval is independent from the workstation clock.
+  // Subtracting the complete HTTPS round trip is deliberately conservative:
+  // issuance happens during that interval, never before it. The game server
+  // still enforces expiry, one-time consumption and account binding.
+  const identity: LaunchTicketIdentity = Object.freeze({
     ticket: response.ticket,
+    issuedAt,
     expiresAt,
+    receivedAtMonotonicMs: timing.receivedAtMonotonicMs,
+    initialRemainingLifetimeMs: serverTicketLifetimeMs - requestElapsedMs,
     rotkId: response.rotkId as string,
     gameAccountGuid,
     steamId: response.steamId as string,
     displayName,
-  };
+  });
+  assertLaunchTicketFresh(identity, MINIMUM_TICKET_LIFETIME_MS, timing.receivedAtMonotonicMs);
+  return identity;
 }
-
 function serviceError(status: number, value: unknown): Error {
   const errorCode = value && typeof value === "object"
     ? (value as Record<string, unknown>).error
@@ -100,6 +163,7 @@ export async function createLaunchTicket(
   if (!isValidPlayerKey(playerKey)) throw new Error("Invalid ROTK player key");
   const endpoint = validateEndpoint(endpointValue);
   const fetchImpl = options.fetchImpl ?? fetch;
+  const requestStartedAtMonotonicMs = performance.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
@@ -128,7 +192,10 @@ export async function createLaunchTicket(
       throw new Error("Invalid response from the ROTK account service");
     }
     if (!response.ok) throw serviceError(response.status, payload);
-    return parseTicketResponse(payload);
+    return parseTicketResponse(payload, {
+      requestStartedAtMonotonicMs,
+      receivedAtMonotonicMs: performance.now(),
+    });
   } finally {
     clearTimeout(timeout);
   }

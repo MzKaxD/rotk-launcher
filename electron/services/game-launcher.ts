@@ -47,7 +47,9 @@ export async function validateInstalledClient(installation: InstalledClientConfi
   return root;
 }
 
-function sanitizedEnvironment(identity: LaunchTicketIdentity): NodeJS.ProcessEnv {
+function sanitizedEnvironment(
+  identity: Pick<LaunchTicketIdentity, "displayName" | "steamId">,
+): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = { ...process.env };
   for (const key of Object.keys(environment)) {
     const normalized = key.toLocaleUpperCase("en-US");
@@ -162,7 +164,7 @@ export class GameLauncher {
       // or a slow disk. Refresh only after that expensive work, then rewrite
       // the identity-bound local gateway/configuration before spawning H1Z1.
       try {
-        assertLaunchTicketFresh(launchIdentity.expiresAt);
+        assertLaunchTicketFresh(launchIdentity);
       } catch {
         await sessionGateway.close().catch(() => undefined);
         launchIdentity = await createLaunchTicket(
@@ -176,7 +178,7 @@ export class GameLauncher {
           sessionGateway.createSessionUrl,
           launchIdentity,
         );
-        assertLaunchTicketFresh(launchIdentity.expiresAt);
+        assertLaunchTicketFresh(launchIdentity);
       }
 
       const args = buildLaunchArguments(
