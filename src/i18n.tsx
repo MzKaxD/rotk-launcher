@@ -111,6 +111,9 @@ export interface Copy {
     steamDetail: string;
     sourceClient: string;
     rotkInstall: string;
+    detectedBadge: string;
+    recommendedBadge: string;
+    subfolderHint: string;
     choose: string;
     cancelCopy: string;
     createInstall: string;
@@ -223,6 +226,9 @@ const COPY: Record<AppLocale, Copy> = {
       steamDetail: "This installation will not be modified. Choose a destination outside Steam for the ROTK copy.",
       sourceClient: "H1Z1 CLIENT",
       rotkInstall: "ROTK INSTALLATION",
+      detectedBadge: "AUTO-DETECTED",
+      recommendedBadge: "RECOMMENDED",
+      subfolderHint: "A ROTK subfolder is created automatically in the chosen location — no need to create it yourself.",
       choose: "CHOOSE",
       cancelCopy: "CANCEL",
       createInstall: "CREATE SEPARATE COPY",
@@ -344,6 +350,9 @@ const COPY: Record<AppLocale, Copy> = {
       steamDetail: "Cette installation ne sera pas modifiée. Choisis un emplacement hors de Steam pour la copie ROTK.",
       sourceClient: "CLIENT H1Z1",
       rotkInstall: "INSTALLATION ROTK",
+      detectedBadge: "DÉTECTÉ AUTO",
+      recommendedBadge: "RECOMMANDÉ",
+      subfolderHint: "Un sous-dossier ROTK est créé automatiquement dans l’emplacement choisi — inutile de le créer toi-même.",
       choose: "CHOISIR",
       cancelCopy: "ANNULER",
       createInstall: "CRÉER UNE COPIE SÉPARÉE",
