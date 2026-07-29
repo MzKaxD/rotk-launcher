@@ -108,12 +108,14 @@ function buildLaunchArguments(
   localCreateSessionUrl: string,
 ): string[] {
   const gatewayCreateSession = validateLocalCreateSessionUrl(localCreateSessionUrl);
+  const voiceGrantOrigin = validateVoiceGrantOrigin(runtime.voiceGrantOrigin);
   const localLogs = join(logsRoot, installId, "local");
   const failureLogs = join(logsRoot, installId, "failure");
   return [
     `sessionid=${launchTicket}`,
     `server=${serverList(runtime)}`,
     `SteamGatewayUrl=${gatewayCreateSession}`,
+    `VivoxGrantUrl=${voiceGrantOrigin}`,
     `CommandQueue:motd_uri=${runtime.gatewayOrigin}/`,
     `CommandQueue:cb_uri=${runtime.gatewayOrigin}/`,
     `CommandQueue:eula_uri=${runtime.gatewayOrigin}/`,
@@ -125,6 +127,26 @@ function buildLaunchArguments(
     `Logging:LocalDirectory=${localLogs}`,
     `Logging:FailureDirectory=${failureLogs}`,
   ];
+}
+
+function validateVoiceGrantOrigin(value: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("Invalid ROTK voice grant origin");
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.pathname !== "/" ||
+    parsed.search !== "" ||
+    parsed.hash !== "" ||
+    parsed.username !== "" ||
+    parsed.password !== ""
+  ) {
+    throw new Error("Invalid ROTK voice grant origin");
+  }
+  return parsed.origin;
 }
 
 export class GameLauncher {
@@ -225,4 +247,5 @@ export const gameLauncherInternals = {
   validateInstalledClient,
   prepareClient,
   buildLaunchArguments,
+  validateVoiceGrantOrigin,
 };
