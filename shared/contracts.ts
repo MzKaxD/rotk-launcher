@@ -33,6 +33,10 @@ export interface InstallSelection {
   sourceRoot: string | null;
   destinationRoot: string | null;
   sourceKind: ClientSourceKind | null;
+  /** The source was found by automatic Steam discovery, not a manual pick. */
+  sourceDetected: boolean;
+  /** The destination is the launcher-suggested default, not a manual pick. */
+  destinationRecommended: boolean;
 }
 
 export type ClientSourceKind = "direct" | "copy-required";
@@ -91,6 +95,7 @@ export interface RotkLauncherApi {
   setLocale(locale: AppLocale): Promise<void>;
   setPlayerKey(playerKey: string): Promise<OperationResult<PlayerIdentitySummary>>;
   copyPlayerKey(): Promise<OperationResult>;
+  detectSource(): Promise<OperationResult<{ sourceRoot: string | null }>>;
   selectSource(): Promise<OperationResult<{ sourceRoot: string }>>;
   selectDestination(): Promise<OperationResult<{ destinationRoot: string }>>;
   install(): Promise<OperationResult<{ installationRoot: string }>>;
@@ -110,6 +115,7 @@ export const IPC_CHANNELS = {
   setLocale: "launcher:set-locale",
   setPlayerKey: "launcher:set-player-key",
   copyPlayerKey: "launcher:copy-player-key",
+  detectSource: "launcher:detect-source",
   selectSource: "launcher:select-source",
   selectDestination: "launcher:select-destination",
   install: "launcher:install",

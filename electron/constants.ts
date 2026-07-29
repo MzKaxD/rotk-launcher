@@ -17,7 +17,8 @@ export const CRITICAL_CLIENT_FILES = [
   "steam_api64.dll",
 ] as const;
 
-export const ROTK_INSTALL_DIRECTORY_NAME = "ROTK-H1Z1";
+export const ROTK_INSTALL_DIRECTORY_NAME = "ROTK";
+export const RECOMMENDED_INSTALL_PARENT_NAME = "Games";
 export const INSTALL_MARKER_NAME = ".rotk-installation.json";
 
 export function resolveBundledShimPath(): string {
