@@ -9,6 +9,7 @@ const runtime: RuntimeConfig = {
   environment: "production",
   label: "ROTK Europe",
   gatewayOrigin: "https://gateway.rotk.app",
+  voiceGrantOrigin: "https://voice.rotk.app",
   loginHost: "login.rotk.app",
   loginPorts: [20042, 20043],
   websiteOrigin: "https://rotk.app",

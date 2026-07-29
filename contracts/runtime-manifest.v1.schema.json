@@ -11,6 +11,7 @@
     "expiresAt",
     "minLauncherVersion",
     "gatewayOrigin",
+    "voiceGrantOrigin",
     "loginEndpoints",
     "websiteOrigin",
     "keyId",
@@ -23,6 +24,10 @@
     "expiresAt": { "type": "string", "format": "date-time" },
     "minLauncherVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
     "gatewayOrigin": { "type": "string", "pattern": "^https://" },
+    "voiceGrantOrigin": {
+      "type": "string",
+      "pattern": "^https://[^/?#]+$"
+    },
     "loginEndpoints": {
       "type": "array",
       "minItems": 1,
