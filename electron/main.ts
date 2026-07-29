@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { join, basename, resolve } from "node:path";
+import { stat } from "node:fs/promises";
+import { join, basename, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   app,
@@ -24,6 +25,7 @@ import {
 import { isAppLocale, type AppLocale } from "../shared/locale.js";
 import {
   APP_NAME,
+  RECOMMENDED_INSTALL_PARENT_NAME,
   ROTK_INSTALL_DIRECTORY_NAME,
   WEBSITE_ORIGIN,
   resolveBundledShimPath,
@@ -32,6 +34,7 @@ import { ConfigStore } from "./services/config-store.js";
 import { adoptExistingClient, installClient } from "./services/installer.js";
 import { GameLauncher, validateInstalledClient } from "./services/game-launcher.js";
 import { classifyClientSource, validateInstallDestination } from "./services/path-policy.js";
+import { locateSteamClient } from "./services/steam-locator.js";
 import { DEFAULT_RUNTIME_CONFIG } from "./services/runtime-config.js";
 import { UpdateFeedService } from "./services/update-feed.js";
 import { LauncherUpdateService } from "./services/launcher-update.js";
@@ -75,6 +78,8 @@ let phase: LauncherPhase = "unconfigured";
 let sourceRoot: string | null = null;
 let destinationRoot: string | null = null;
 let sourceKind: ClientSourceKind | null = null;
+let sourceDetected = false;
+let destinationRecommended = false;
 let progress: LauncherSnapshot["progress"] = null;
 let updates: LauncherSnapshot["updates"] = [];
 let lastErrorRaw: string | null = null;
@@ -101,12 +106,38 @@ async function installationRoot(): Promise<string | null> {
   return (await configStore.load()).installation?.root ?? null;
 }
 
+function recommendedDestinationPath(): string {
+  const systemDrive = process.env.SystemDrive ?? "C:";
+  return join(`${systemDrive}${sep}`, RECOMMENDED_INSTALL_PARENT_NAME, ROTK_INSTALL_DIRECTORY_NAME);
+}
+
+/**
+ * Pre-fill the ROTK destination with the recommended default so a detected or
+ * freshly selected Steam client only needs one Install click. Best-effort: an
+ * already existing folder (the installer requires an empty target) or a
+ * failing path policy leaves the destination for manual selection.
+ */
+async function applyRecommendedDestination(): Promise<void> {
+  if (sourceKind !== "copy-required" || !sourceRoot) return;
+  try {
+    const candidate = recommendedDestinationPath();
+    const existing = await stat(candidate).catch(() => null);
+    if (existing) return;
+    destinationRoot = await validateInstallDestination(candidate, sourceRoot);
+    destinationRecommended = true;
+    phase = "destination-selected";
+  } catch {
+    destinationRoot = null;
+    destinationRecommended = false;
+  }
+}
+
 async function snapshot(): Promise<LauncherSnapshot> {
   const configuredRoot = await installationRoot();
   return {
     appVersion: app.getVersion(),
     phase,
-    selection: { sourceRoot, destinationRoot, sourceKind },
+    selection: { sourceRoot, destinationRoot, sourceKind, sourceDetected, destinationRecommended },
     installationRoot: configuredRoot,
     updates,
     runtime: {
@@ -224,6 +255,36 @@ function registerIpc(): void {
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.detectSource,
+    trustedHandler(async (): Promise<OperationResult<{ sourceRoot: string | null }>> => {
+      const copy = MAIN_COPY[currentLocale];
+      if (gameLauncher.isRunning() || phase === "launching" || phase === "running") {
+        return { ok: false, error: copy.clientInUse };
+      }
+      if (installAbortController) return { ok: false, error: copy.installationInProgress };
+      if (sourceRoot) return { ok: true, value: { sourceRoot } };
+      try {
+        const located = await locateSteamClient();
+        if (!located) return { ok: true, value: { sourceRoot: null } };
+        const selectedClient = await classifyClientSource(located);
+        sourceRoot = selectedClient.root;
+        sourceKind = selectedClient.kind;
+        sourceDetected = true;
+        destinationRoot = null;
+        destinationRecommended = false;
+        phase = "source-selected";
+        await applyRecommendedDestination();
+        lastErrorRaw = null;
+        await broadcastSnapshot();
+        return { ok: true, value: { sourceRoot } };
+      } catch {
+        // Discovery is best-effort: any failure simply leaves the manual flow.
+        return { ok: true, value: { sourceRoot: null } };
+      }
+    }),
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.selectSource,
     trustedHandler(async (): Promise<OperationResult<{ sourceRoot: string }>> => {
       const copy = MAIN_COPY[currentLocale];
@@ -242,8 +303,11 @@ function registerIpc(): void {
         const selectedClient = await classifyClientSource(selected.filePaths[0]);
         sourceRoot = selectedClient.root;
         sourceKind = selectedClient.kind;
+        sourceDetected = false;
         destinationRoot = null;
+        destinationRecommended = false;
         phase = "source-selected";
+        await applyRecommendedDestination();
         lastErrorRaw = null;
         await broadcastSnapshot();
         return { ok: true, value: { sourceRoot } };
@@ -276,6 +340,7 @@ function registerIpc(): void {
           ? parent
           : join(parent, ROTK_INSTALL_DIRECTORY_NAME);
         destinationRoot = await validateInstallDestination(candidate, sourceRoot);
+        destinationRecommended = false;
         phase = "destination-selected";
         lastErrorRaw = null;
         await broadcastSnapshot();

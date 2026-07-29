@@ -15,6 +15,7 @@ export default function App() {
   const [identityOpen, setIdentityOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [transientError, setTransientError] = useState<string | null>(null);
+  const [detectAttempted, setDetectAttempted] = useState(false);
 
   useEffect(() => {
     setTransientError(null);
@@ -44,6 +45,16 @@ export default function App() {
       unsubscribe();
     };
   }, []);
+
+  // First-run assistance: when the setup panel opens without any selection,
+  // ask the main process to discover the Steam client once per session.
+  useEffect(() => {
+    if (!setupOpen || detectAttempted || !snapshot) return;
+    if (snapshot.installationRoot || snapshot.selection.sourceRoot) return;
+    if (snapshot.phase === "installing") return;
+    setDetectAttempted(true);
+    void window.rotk.detectSource();
+  }, [setupOpen, detectAttempted, snapshot]);
 
   const perform = useCallback(async (operation: () => Promise<OperationResult<unknown>>) => {
     setBusy(true);

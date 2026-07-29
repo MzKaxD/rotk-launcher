@@ -10,6 +10,7 @@ const api: RotkLauncherApi = {
   setLocale: (locale) => ipcRenderer.invoke(IPC_CHANNELS.setLocale, locale),
   setPlayerKey: (playerKey) => ipcRenderer.invoke(IPC_CHANNELS.setPlayerKey, playerKey),
   copyPlayerKey: () => ipcRenderer.invoke(IPC_CHANNELS.copyPlayerKey),
+  detectSource: () => ipcRenderer.invoke(IPC_CHANNELS.detectSource),
   selectSource: () => ipcRenderer.invoke(IPC_CHANNELS.selectSource),
   selectDestination: () => ipcRenderer.invoke(IPC_CHANNELS.selectDestination),
   install: () => ipcRenderer.invoke(IPC_CHANNELS.install),
