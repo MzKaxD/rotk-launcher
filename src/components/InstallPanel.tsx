@@ -110,7 +110,12 @@ export function InstallPanel({
                 <span className="install-step__index">{hasSource ? <Check size={16} /> : "01"}</span>
                 <FolderOpen size={19} />
                 <span className="install-step__copy">
-                  <strong>{copy.install.sourceClient}</strong>
+                  <strong>
+                    {copy.install.sourceClient}
+                    {snapshot.selection.sourceDetected && (
+                      <span className="install-step__badge">{copy.install.detectedBadge}</span>
+                    )}
+                  </strong>
                   <small title={snapshot.selection.sourceRoot ?? undefined}>{shortPath(snapshot.selection.sourceRoot, copy.install.notSelected)}</small>
                 </span>
                 <span className="install-step__action">{copy.install.choose}</span>
@@ -130,7 +135,12 @@ export function InstallPanel({
                     <span className="install-step__index">{hasDestination ? <Check size={16} /> : "02"}</span>
                     <HardDrive size={19} />
                     <span className="install-step__copy">
-                      <strong>{copy.install.rotkInstall}</strong>
+                      <strong>
+                        {copy.install.rotkInstall}
+                        {snapshot.selection.destinationRecommended && hasDestination && (
+                          <span className="install-step__badge">{copy.install.recommendedBadge}</span>
+                        )}
+                      </strong>
                       <small title={snapshot.selection.destinationRoot ?? undefined}>{shortPath(snapshot.selection.destinationRoot, copy.install.notSelected)}</small>
                     </span>
                     <span className="install-step__action">{copy.install.choose}</span>
@@ -138,6 +148,10 @@ export function InstallPanel({
                 )}
               </AnimatePresence>
             </div>
+
+            {requiresCopy && (
+              <p className="install-panel__hint">{copy.install.subfolderHint}</p>
+            )}
 
             {installing && snapshot.progress ? (
               <div className="copy-progress">
