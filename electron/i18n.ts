@@ -94,6 +94,7 @@ const ENGLISH_ERRORS = new Map<string, string>([
   ["Windows n’a pas retourné l’identifiant du processus H1Z1.", "Windows did not return an H1Z1 process identifier."],
   ["Cette version de H1Z1 n’est pas encore prise en charge par ROTK. Vérifie les fichiers du jeu dans Steam puis réessaie.", "This H1Z1 version is not supported by ROTK yet. Verify the game files in Steam and try again."],
   ["Le proxy vocal ROTK embarqué est invalide.", "The bundled ROTK voice proxy is invalid."],
+  ["Le runtime Vivox 5 embarqué est invalide.", "The bundled Vivox 5 runtime is invalid."],
   ["Le SDK Vivox historique est introuvable.", "The legacy Vivox SDK could not be found."],
   ["La version Vivox 5 attendue est absente du client H1Z1.", "The required Vivox 5 version is missing from the H1Z1 client."],
   ["Le SDK Vivox actif est inconnu; vérifie les fichiers H1Z1.", "The active Vivox SDK is unknown. Verify the H1Z1 files."],

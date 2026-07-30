@@ -32,3 +32,9 @@ export function resolveBundledVivoxProxyPath(): string {
     ? join(process.resourcesPath, "patches", "vivoxsdk_x64.dll")
     : join(app.getAppPath(), "resources", "patches", "vivoxsdk_x64.dll");
 }
+
+export function resolveBundledVivoxRuntimePath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, "patches", "vivoxsdk_x64_v5.dll")
+    : join(app.getAppPath(), "resources", "patches", "vivoxsdk_x64_v5.dll");
+}

@@ -18,12 +18,13 @@ async function sha256(filePath: string): Promise<string> {
 }
 
 /**
- * Installs only ROTK's open-source compatibility layer. The official Vivox 5
- * SDK must already exist in the supported H1Z1 client.
+ * Installs ROTK's open-source compatibility layer and, when absent, a
+ * separately provisioned official Vivox 5 runtime.
  */
 export async function deployVivoxCompatibility(
   root: string,
   bundledProxyPath: string,
+  bundledRuntimePath: string,
 ): Promise<void> {
   await access(bundledProxyPath, fsConstants.R_OK);
   const proxy = await stat(bundledProxyPath);
@@ -37,6 +38,18 @@ export async function deployVivoxCompatibility(
   const v5Path = join(root, "vivoxsdk_x64_v5.dll");
   const active = await stat(activePath).catch(() => null);
   if (!active?.isFile()) throw new Error("Le SDK Vivox historique est introuvable.");
+  const existingV5 = await stat(v5Path).catch(() => null);
+  if (existingV5 === null) {
+    await access(bundledRuntimePath, fsConstants.R_OK);
+    const runtime = await stat(bundledRuntimePath);
+    if (
+      !runtime.isFile() ||
+      await sha256(bundledRuntimePath) !== VIVOX_STOCK_V5_SHA256
+    ) {
+      throw new Error("Le runtime Vivox 5 embarqué est invalide.");
+    }
+    await copyFile(bundledRuntimePath, v5Path, fsConstants.COPYFILE_EXCL);
+  }
   if (await sha256(v5Path).catch(() => "") !== VIVOX_STOCK_V5_SHA256) {
     throw new Error("La version Vivox 5 attendue est absente du client H1Z1.");
   }

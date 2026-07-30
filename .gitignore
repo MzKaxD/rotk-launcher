@@ -20,3 +20,4 @@ native/vivoxproxy/dist/
 resources/patches/*.pdb
 resources/patches/vivoxsdk_x64.dll
 resources/patches/vivoxsdk_x64_proxy.lib
+resources/patches/vivoxsdk_x64_v5.dll

@@ -30,6 +30,7 @@ import {
   WEBSITE_ORIGIN,
   resolveBundledShimPath,
   resolveBundledVivoxProxyPath,
+  resolveBundledVivoxRuntimePath,
 } from "./constants.js";
 import { ConfigStore } from "./services/config-store.js";
 import { adoptExistingClient, installClient } from "./services/installer.js";
@@ -383,6 +384,7 @@ function registerIpc(): void {
               root: sourceRoot,
               shimPath: resolveBundledShimPath(),
               vivoxProxyPath: resolveBundledVivoxProxyPath(),
+              vivoxRuntimePath: resolveBundledVivoxRuntimePath(),
               launcherVersion: app.getVersion(),
               onProgress,
             })
@@ -391,6 +393,7 @@ function registerIpc(): void {
               destinationRoot: installationRoot,
               shimPath: resolveBundledShimPath(),
               vivoxProxyPath: resolveBundledVivoxProxyPath(),
+              vivoxRuntimePath: resolveBundledVivoxRuntimePath(),
               launcherVersion: app.getVersion(),
               signal: installAbortController.signal,
               onProgress,
@@ -445,6 +448,7 @@ function registerIpc(): void {
           logsRoot: join(app.getPath("userData"), "logs"),
           bundledShimPath: resolveBundledShimPath(),
           bundledVivoxProxyPath: resolveBundledVivoxProxyPath(),
+          bundledVivoxRuntimePath: resolveBundledVivoxRuntimePath(),
           onExit: () => {
             gamePid = null;
             phase = "ready";
