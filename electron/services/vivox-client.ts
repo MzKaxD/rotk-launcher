@@ -7,7 +7,7 @@ import { join } from "node:path";
 export const VIVOX_STOCK_V4_SHA256 =
   "d6915a466a905ae55f7e20019e01228c92cc86ce793a9fc050b49258a210c7b1";
 export const VIVOX_STOCK_V5_SHA256 =
-  "33a7f704eda23dda9ccbd9eba1fda2f0589211e9c61ec9d1f9c797f2dcbf65f9";
+  "33a7f704eda23dda9ccbd9eba1fda2f0589211e9c61ec9d1f9c797acc624ea44";
 
 async function sha256(filePath: string): Promise<string> {
   const hash = createHash("sha256");
@@ -33,6 +33,7 @@ export async function deployVivoxCompatibility(
 
   const activePath = join(root, "vivoxsdk_x64.dll");
   const backupPath = join(root, "vivoxsdk_x64.original.dll");
+  const legacyBackupPath = join(root, "vivoxsdk_x64_original.dll");
   const v5Path = join(root, "vivoxsdk_x64_v5.dll");
   const active = await stat(activePath).catch(() => null);
   if (!active?.isFile()) throw new Error("Le SDK Vivox historique est introuvable.");
@@ -40,13 +41,21 @@ export async function deployVivoxCompatibility(
     throw new Error("La version Vivox 5 attendue est absente du client H1Z1.");
   }
 
-  const backup = await stat(backupPath).catch(() => null);
+  let backup = await stat(backupPath).catch(() => null);
   if (backup === null) {
-    if (await sha256(activePath) !== VIVOX_STOCK_V4_SHA256) {
-      throw new Error("Le SDK Vivox actif est inconnu; vérifie les fichiers H1Z1.");
+    const legacyBackupHash = await sha256(legacyBackupPath).catch(() => "");
+    if (legacyBackupHash === VIVOX_STOCK_V4_SHA256) {
+      await copyFile(legacyBackupPath, backupPath, fsConstants.COPYFILE_EXCL);
+      backup = await stat(backupPath);
+    } else {
+      if (await sha256(activePath) !== VIVOX_STOCK_V4_SHA256) {
+        throw new Error("Le SDK Vivox actif est inconnu; vérifie les fichiers H1Z1.");
+      }
+      await copyFile(activePath, backupPath, fsConstants.COPYFILE_EXCL);
+      backup = await stat(backupPath);
     }
-    await copyFile(activePath, backupPath, fsConstants.COPYFILE_EXCL);
-  } else if (!backup.isFile() || await sha256(backupPath) !== VIVOX_STOCK_V4_SHA256) {
+  }
+  if (!backup.isFile() || await sha256(backupPath) !== VIVOX_STOCK_V4_SHA256) {
     throw new Error("La sauvegarde du SDK Vivox historique est invalide.");
   }
 
