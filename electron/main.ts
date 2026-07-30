@@ -189,17 +189,19 @@ function ensureTrustedSender(event: IpcMainInvokeEvent): void {
 
 function isTrustedRendererUrl(candidate: string): boolean {
   try {
-    if (app.isPackaged) {
-      const parsed = new URL(candidate);
-      if (parsed.protocol !== "file:") return false;
-      parsed.hash = "";
-      parsed.search = "";
-      const expected = resolve(join(app.getAppPath(), "dist", "index.html")).toLocaleLowerCase("en-US");
-      const actual = resolve(fileURLToPath(parsed)).toLocaleLowerCase("en-US");
-      return actual === expected;
+    const developmentServerUrl = process.env.VITE_DEV_SERVER_URL;
+    if (!app.isPackaged && developmentServerUrl) {
+      const developmentOrigin = new URL(developmentServerUrl).origin;
+      return new URL(candidate).origin === developmentOrigin;
     }
-    const devOrigin = new URL(process.env.VITE_DEV_SERVER_URL ?? "http://localhost:5173").origin;
-    return new URL(candidate).origin === devOrigin;
+
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "file:") return false;
+    parsed.hash = "";
+    parsed.search = "";
+    const expected = resolve(join(app.getAppPath(), "dist", "index.html")).toLocaleLowerCase("en-US");
+    const actual = resolve(fileURLToPath(parsed)).toLocaleLowerCase("en-US");
+    return actual === expected;
   } catch {
     return false;
   }

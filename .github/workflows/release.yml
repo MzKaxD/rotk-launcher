@@ -61,27 +61,8 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Provision the official Vivox 5 runtime
-        shell: pwsh
-        env:
-          VIVOX_RUNTIME_URL: ${{ secrets.VIVOX_RUNTIME_DOWNLOAD_URL }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:VIVOX_RUNTIME_URL)) {
-            throw "The release environment secret VIVOX_RUNTIME_DOWNLOAD_URL is required."
-          }
-          $uri = [Uri]$env:VIVOX_RUNTIME_URL
-          if ($uri.Scheme -ne "https") {
-            throw "VIVOX_RUNTIME_DOWNLOAD_URL must use HTTPS."
-          }
-
-          $runtime = Join-Path $env:GITHUB_WORKSPACE "resources\patches\vivoxsdk_x64_v5.dll"
-          New-Item -ItemType Directory -Path (Split-Path -Parent $runtime) -Force | Out-Null
-          Invoke-WebRequest -Uri $uri -OutFile $runtime -UseBasicParsing
-          npm run verify:vivox-runtime
-          if ($LASTEXITCODE -ne 0) {
-            Remove-Item -LiteralPath $runtime -Force -ErrorAction SilentlyContinue
-            throw "The provisioned Vivox 5 runtime failed verification."
-          }
+      - name: Verify the bundled official Vivox 5 runtime
+        run: npm run verify:vivox-runtime
 
       - name: Detect the Windows signing configuration
         id: signing
@@ -119,6 +100,10 @@ jobs:
       - name: Test and build
         run: |
           npm run build:vivox
+          $proxyHash = (Get-FileHash -LiteralPath "resources\patches\vivoxsdk_x64.dll" -Algorithm SHA256).Hash
+          if ($proxyHash -ne "F67EC183AC66DFC8239094582F3479E41A4E5C6FB1AD2F7DF4D03A9196117629") {
+            throw "Unexpected Vivox proxy SHA-256: $proxyHash"
+          }
           npm run build
 
       - name: Package NSIS installer
@@ -147,6 +132,14 @@ jobs:
             Where-Object { $_.Name -eq "vivoxsdk_x64_v5.dll" } |
             Select-Object -First 1
           $vivoxHash = (Get-FileHash -LiteralPath $vivoxRuntime.FullName -Algorithm SHA256).Hash
+          $vivoxProxy = $targets |
+            Where-Object { $_.Name -eq "vivoxsdk_x64.dll" } |
+            Select-Object -First 1
+          $proxyHash = (Get-FileHash -LiteralPath $vivoxProxy.FullName -Algorithm SHA256).Hash
+          if ($proxyHash -ne "F67EC183AC66DFC8239094582F3479E41A4E5C6FB1AD2F7DF4D03A9196117629") {
+            throw "Unexpected packaged Vivox proxy SHA-256: $proxyHash"
+          }
+
           if ($vivoxHash -ne "33A7F704EDA23DDA9CCBD9EBA1FDA2F0589211E9C61EC9D1F9C797ACC624EA44") {
             throw "Unexpected packaged Vivox 5 runtime SHA-256: $vivoxHash"
           }

@@ -1,6 +1,6 @@
 {
   "name": "rotk-launcher",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Open-source launcher for Return of the King",
   "author": "Return of the King contributors",
   "license": "GPL-3.0-or-later",
@@ -76,7 +76,8 @@
         "from": "resources/patches",
         "to": "patches",
         "filter": [
-          "**/*"
+          "**/*.dll",
+          "**/*.sha256"
         ]
       }
     ],

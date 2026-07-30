@@ -8,7 +8,7 @@ export const VIVOX_STOCK_V4_SHA256 =
 export const VIVOX_STOCK_V5_SHA256 =
   "33a7f704eda23dda9ccbd9eba1fda2f0589211e9c61ec9d1f9c797acc624ea44";
 export const VIVOX_PROXY_SHA256 =
-  "8cd68ea6d42eb01971add31b942a47a60d89036a24b72e098a4a6af59895fba8";
+  "f67ec183ac66dfc8239094582f3479e41a4e5c6fb1ad2f7df4d03a9196117629";
 
 interface VivoxDeploymentPolicy {
   stockV4Sha256: string;
