@@ -26,3 +26,9 @@ export function resolveBundledShimPath(): string {
     ? join(process.resourcesPath, "patches", "steam_api64.dll")
     : join(app.getAppPath(), "resources", "patches", "steam_api64.dll");
 }
+
+export function resolveBundledVivoxProxyPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, "patches", "vivoxsdk_x64.dll")
+    : join(app.getAppPath(), "resources", "patches", "vivoxsdk_x64.dll");
+}

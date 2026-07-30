@@ -15,6 +15,7 @@ import {
   createLaunchTicket,
   type LaunchTicketIdentity,
 } from "./launch-ticket.js";
+import { deployVivoxCompatibility } from "./vivox-client.js";
 
 export interface LaunchRequest {
   config: LauncherConfig;
@@ -22,6 +23,7 @@ export interface LaunchRequest {
   runtime: RuntimeConfig;
   logsRoot: string;
   bundledShimPath: string;
+  bundledVivoxProxyPath: string;
   onExit(exitCode: number | null): void;
 }
 
@@ -79,6 +81,7 @@ async function prepareClient(
   // steering configuration and execution to a different tree.
   const activeShimPath = join(root, "steam_api64.dll");
   await copyFile(request.bundledShimPath, activeShimPath);
+  await deployVivoxCompatibility(root, request.bundledVivoxProxyPath);
 
   const configPath = join(root, "ClientConfig.ini");
   const configBackupPath = join(root, "ClientConfig.original.ini");
