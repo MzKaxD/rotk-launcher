@@ -53,7 +53,5 @@ if ($LASTEXITCODE -ne 0) {
 }
 Remove-Item -LiteralPath $importLibrary -Force -ErrorAction SilentlyContinue
 
-$hash = (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash
 Write-Host "Built ROTK Vivox 5 compatibility proxy:"
 Write-Host "  $output"
-Write-Host "  SHA256 $hash"
