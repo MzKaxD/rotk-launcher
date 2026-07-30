@@ -95,7 +95,9 @@ jobs:
           }
 
       - name: Test and build
-        run: npm run build
+        run: |
+          npm run build:vivox
+          npm run build
 
       - name: Package NSIS installer
         run: npx electron-builder --win nsis --publish never --config.forceCodeSigning=${{ steps.signing.outputs.signed }}
@@ -112,9 +114,10 @@ jobs:
             Get-ChildItem -LiteralPath release -File -Filter "ROTK-Launcher-*.exe"
             Get-Item -LiteralPath "release\win-unpacked\ROTK Launcher.exe"
             Get-Item -LiteralPath "release\win-unpacked\resources\patches\steam_api64.dll"
+            Get-Item -LiteralPath "release\win-unpacked\resources\patches\vivoxsdk_x64.dll"
           )
-          if ($targets.Count -lt 3) {
-            throw "The installer, packaged launcher or runtime shim is missing."
+          if ($targets.Count -lt 4) {
+            throw "The installer, packaged launcher or runtime compatibility DLL is missing."
           }
 
           if ($env:RELEASE_SIGNED -ne "true") {

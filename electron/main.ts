@@ -29,6 +29,7 @@ import {
   ROTK_INSTALL_DIRECTORY_NAME,
   WEBSITE_ORIGIN,
   resolveBundledShimPath,
+  resolveBundledVivoxProxyPath,
 } from "./constants.js";
 import { ConfigStore } from "./services/config-store.js";
 import { adoptExistingClient, installClient } from "./services/installer.js";
@@ -381,6 +382,7 @@ function registerIpc(): void {
           ? await adoptExistingClient({
               root: sourceRoot,
               shimPath: resolveBundledShimPath(),
+              vivoxProxyPath: resolveBundledVivoxProxyPath(),
               launcherVersion: app.getVersion(),
               onProgress,
             })
@@ -388,6 +390,7 @@ function registerIpc(): void {
               sourceRoot,
               destinationRoot: installationRoot,
               shimPath: resolveBundledShimPath(),
+              vivoxProxyPath: resolveBundledVivoxProxyPath(),
               launcherVersion: app.getVersion(),
               signal: installAbortController.signal,
               onProgress,
@@ -441,6 +444,7 @@ function registerIpc(): void {
           runtime: DEFAULT_RUNTIME_CONFIG,
           logsRoot: join(app.getPath("userData"), "logs"),
           bundledShimPath: resolveBundledShimPath(),
+          bundledVivoxProxyPath: resolveBundledVivoxProxyPath(),
           onExit: () => {
             gamePid = null;
             phase = "ready";

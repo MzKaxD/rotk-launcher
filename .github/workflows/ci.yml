@@ -139,6 +139,17 @@ jobs:
             }
           }
 
+      - name: Compiler le proxy Vivox open source
+        shell: pwsh
+        run: |
+          npm run build:vivox
+          $bundled = Join-Path $env:GITHUB_WORKSPACE "resources\patches\vivoxsdk_x64.dll"
+          if (-not (Test-Path -LiteralPath $bundled -PathType Leaf)) {
+            throw "Le build du proxy Vivox n'a produit aucune DLL."
+          }
+          $hash = (Get-FileHash -LiteralPath $bundled -Algorithm SHA256).Hash
+          Write-Host "Proxy Vivox compilé depuis les sources publiques : $hash"
+
       - name: Typer, tester et construire le launcher
         run: npm run build
 
@@ -153,3 +164,4 @@ jobs:
             dist-electron/
             native/steamshim/dist/steam_api64.dll
             native/steamshim/dist/steam_api64.dll.sha256
+            resources/patches/vivoxsdk_x64.dll
