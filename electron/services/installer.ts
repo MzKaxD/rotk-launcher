@@ -29,6 +29,7 @@ import {
   validateInstallDestination,
 } from "./path-policy.js";
 import { identifyClientBuild } from "./client-build.js";
+import { deployVivoxCompatibility } from "./vivox-client.js";
 
 const MAX_CLIENT_FILES = 250_000;
 const MINIMUM_DISK_HEADROOM = 2 * 1024 * 1024 * 1024;
@@ -55,6 +56,7 @@ export interface InstallRequest {
   sourceRoot: string;
   destinationRoot: string;
   shimPath: string;
+  vivoxProxyPath: string;
   launcherVersion: string;
   signal: AbortSignal;
   onProgress(progress: InstallProgress): void;
@@ -63,6 +65,7 @@ export interface InstallRequest {
 export interface AdoptExistingClientRequest {
   root: string;
   shimPath: string;
+  vivoxProxyPath: string;
   launcherVersion: string;
   onProgress(progress: InstallProgress): void;
 }
@@ -232,6 +235,7 @@ export async function adoptExistingClient(
 
   await copyOnce(join(root, "ClientConfig.ini"), join(root, "ClientConfig.original.ini"));
   await deployOpenSourceShim(root, request.shimPath);
+  await deployVivoxCompatibility(root, request.vivoxProxyPath);
   await patchBattlEye(root);
 
   const marker: InstallationMarker = {
@@ -241,7 +245,7 @@ export async function adoptExistingClient(
     sourceRoot: existingMarker?.sourceRoot ?? root,
     installedAt: existingMarker?.installedAt ?? new Date().toISOString(),
     launcherVersion: request.launcherVersion,
-    patchVersion: "nosteam-shim-1",
+    patchVersion: "nosteam-shim-1+vivox5-compat-1",
     criticalHashes,
   };
   const markerPath = join(root, INSTALL_MARKER_NAME);
@@ -367,6 +371,7 @@ export async function installClient(request: InstallRequest): Promise<Installati
     });
     await copyFile(join(stagingRoot, "ClientConfig.ini"), join(stagingRoot, "ClientConfig.original.ini"));
     await deployOpenSourceShim(stagingRoot, request.shimPath);
+    await deployVivoxCompatibility(stagingRoot, request.vivoxProxyPath);
     await patchBattlEye(stagingRoot);
 
     const marker: InstallationMarker = {
@@ -376,7 +381,7 @@ export async function installClient(request: InstallRequest): Promise<Installati
       sourceRoot,
       installedAt: new Date().toISOString(),
       launcherVersion: request.launcherVersion,
-      patchVersion: "nosteam-shim-1",
+      patchVersion: "nosteam-shim-1+vivox5-compat-1",
       criticalHashes: sourceCriticalHashes,
     };
     await writeFile(join(stagingRoot, INSTALL_MARKER_NAME), `${JSON.stringify(marker, null, 2)}\n`, {

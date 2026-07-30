@@ -1,6 +1,6 @@
 {
   "name": "rotk-launcher",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Open-source launcher for Return of the King",
   "author": "Return of the King contributors",
   "license": "GPL-3.0-or-later",
@@ -19,7 +19,8 @@
     "test:watch": "vitest",
     "dist": "npm run build && electron-builder --win nsis",
     "dist:dir": "npm run build && electron-builder --win dir --config.forceCodeSigning=false --config.win.signExecutable=false",
-    "build:shim": "powershell -NoProfile -ExecutionPolicy Bypass -File native/steamshim/build-steam-shim.ps1"
+    "build:shim": "powershell -NoProfile -ExecutionPolicy Bypass -File native/steamshim/build-steam-shim.ps1",
+    "build:vivox": "powershell -NoProfile -ExecutionPolicy Bypass -File native/vivoxproxy/build-v5-compat.ps1 -OutputPath resources/patches/vivoxsdk_x64.dll"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.2.8",
@@ -81,7 +82,8 @@
     "win": {
       "icon": "build/icon.ico",
       "signExts": [
-        "steam_api64.dll"
+        "steam_api64.dll",
+        "vivoxsdk_x64.dll"
       ],
       "signtoolOptions": {
         "signingHashAlgorithms": [
