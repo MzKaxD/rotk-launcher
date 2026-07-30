@@ -26,19 +26,37 @@
 
 #define REQUEST_TYPE_OFFSET 0x18U
 #define REQUEST_LOGIN 0x83U
+#define REQUEST_SESSIONGROUP_CREATE 0x06U
 #define REQUEST_SESSION 0x10U
 #define REQUEST_SESSIONGROUP_ADD 0x08U
+#define REQUEST_SESSION_SEND_NOTIFICATION 0x4bU
 #define LOGIN_REQUEST_BYTES 0x90U
 #define SESSION_REQUEST_BYTES 0x90U
-#define SESSIONGROUP_REQUEST_BYTES 0x78U
+#define SESSIONGROUP_REQUEST_BYTES 0x80U
+#define LOGIN_DISPLAY_NAME_OFFSET 0x38U
 #define LOGIN_ACCOUNT_OFFSET 0x80U
 #define LOGIN_TOKEN_OFFSET 0x88U
 #define SESSION_URI_OFFSET 0x40U
 #define SESSION_TOKEN_OFFSET 0x88U
 #define SESSIONGROUP_URI_OFFSET 0x38U
+#define SESSIONGROUP_SESSION_HANDLE_OFFSET 0x68U
 #define SESSIONGROUP_TOKEN_OFFSET 0x70U
+#define SESSIONGROUP_ACCOUNT_OFFSET 0x78U
+#define SESSIONGROUP_CREATE_ACCOUNT_OFFSET 0x30U
+#define SESSIONGROUP_CREATE_TYPE_OFFSET 0x38U
+#define SESSIONGROUP_CREATE_ALIAS_OFFSET 0x50U
+#define SESSIONGROUP_CREATE_HANDLE_OFFSET 0x58U
+#define RESPONSE_RETURN_CODE_OFFSET 0x1cU
+#define RESPONSE_STATUS_CODE_OFFSET 0x20U
+#define RESPONSE_STATUS_STRING_OFFSET 0x28U
+#define RESPONSE_REQUEST_OFFSET 0x30U
+#define RESPONSE_EXTENDED_STATUS_OFFSET 0x38U
+#define RESPONSE_SESSIONGROUP_HANDLE_OFFSET 0x40U
 
+#define VIVOX_MESSAGE_RESPONSE 2
 #define VIVOX_MESSAGE_EVENT 3
+#define VIVOX_EVENT_SESSIONGROUP_ADDED 22
+#define VIVOX_EVENT_SESSION_ADDED 24
 #define VIVOX_EVENT_PARTICIPANT_ADDED 26
 #define VIVOX_EVENT_PARTICIPANT_REMOVED 27
 #define VIVOX_EVENT_PARTICIPANT_UPDATED 28
@@ -56,9 +74,11 @@
 #define GRANT_ACCOUNT_MAX 128U
 #define GRANT_CHANNEL_MAX 512U
 #define GRANT_TOKEN_MAX 2048U
+#define GRANT_DISPLAY_NAME_MAX 128U
 #define GRANT_WIRE_MAX \
     (GRANT_HEADER_BYTES + GRANT_ACCOUNT_MAX + \
-     GRANT_CHANNEL_MAX + GRANT_TOKEN_MAX)
+     GRANT_CHANNEL_MAX + GRANT_TOKEN_MAX + \
+     GRANT_DISPLAY_NAME_MAX)
 
 #define TRACE_ORIGINAL_PATH_FAILED 0x00000001L
 #define TRACE_ORIGINAL_LOAD_FAILED 0x00000002L
@@ -79,14 +99,23 @@
 #define TRACE_FALLBACK_REJECTED 0x00010000L
 #define TRACE_MUTATED_ACCEPTED 0x00020000L
 #define TRACE_MUTATED_REJECTED 0x00040000L
-
+#define TRACE_SESSIONGROUP_COMPAT 0x00080000L
+#define TRACE_SESSIONGROUP_REQUESTED_HANDLE 0x00100000L
+#define TRACE_SESSIONGROUP_GENERATED_HANDLE 0x00200000L
+#define TRACE_SESSIONGROUP_EVENT 0x00400000L
+#define TRACE_SESSIONGROUP_EVENT_BAD_MESSAGE 0x00800000L
+#define TRACE_SESSIONGROUP_EVENT_BAD_REQUEST 0x01000000L
+#define TRACE_SESSIONGROUP_EVENT_BAD_HANDLES 0x02000000L
+#define TRACE_SESSIONGROUP_EVENT_ALLOC_FAILED 0x04000000L
+#define TRACE_SESSIONGROUP_REAL_EVENT_SUPPRESSED 0x08000000L
+#define TRACE_SESSION_URI_RESTORED 0x10000000L
+#define TRACE_LOGIN_DISPLAY_NAME_APPLIED 0x20000000L
 typedef int(__cdecl *vx_issue_request3_fn)(void *request,
                                            int *request_count);
 typedef int(__cdecl *vx_get_message_fn)(void **message);
 typedef int(__cdecl *destroy_evt_fn)(void *event);
 typedef char *(__cdecl *vx_strdup_fn)(const char *value);
 typedef int(__cdecl *vx_free_fn)(char *value);
-
 /*
  * Vivox 4.9.0002.26798 layout used by BR1315.
  *
@@ -109,6 +138,28 @@ typedef struct rotk_vx_evt_base {
     uint32_t reserved;
     char *extended_status_info;
 } rotk_vx_evt_base;
+
+typedef struct rotk_vx_evt_sessiongroup_added {
+    rotk_vx_evt_base base;
+    char *sessiongroup_handle;
+    char *account_handle;
+    int32_t type;
+    uint32_t reserved_3c;
+    char *alias_username;
+} rotk_vx_evt_sessiongroup_added;
+
+typedef struct rotk_vx_evt_session_added {
+    rotk_vx_evt_base base;
+    char *sessiongroup_handle;
+    char *session_handle;
+    char *uri;
+    int32_t is_channel;
+    int32_t incoming;
+    char *channel_name;
+    char *displayname;
+    char *application;
+    char *alias_username;
+} rotk_vx_evt_session_added;
 
 typedef struct rotk_vx_evt_participant_added {
     rotk_vx_evt_base base;
@@ -162,6 +213,18 @@ _Static_assert(sizeof(rotk_vx_evt_base) == 0x28U,
 _Static_assert(offsetof(rotk_vx_evt_base, type) == 0x18U,
                "Vivox 4.9 event type offset changed");
 _Static_assert(
+    offsetof(rotk_vx_evt_sessiongroup_added, sessiongroup_handle) == 0x28U,
+    "Vivox sessiongroup-added handle offset changed");
+_Static_assert(
+    offsetof(rotk_vx_evt_sessiongroup_added, alias_username) == 0x40U,
+    "Vivox sessiongroup-added alias offset changed");
+_Static_assert(
+    offsetof(rotk_vx_evt_session_added, uri) == 0x38U,
+    "Vivox session-added URI offset changed");
+_Static_assert(
+    offsetof(rotk_vx_evt_session_added, alias_username) == 0x60U,
+    "Vivox session-added alias offset changed");
+_Static_assert(
     offsetof(rotk_vx_evt_participant_added, sessiongroup_handle) == 0x28U,
     "Vivox participant-added sessiongroup offset changed");
 _Static_assert(
@@ -179,6 +242,8 @@ typedef struct hud_synthetic_event {
     size_t event_bytes;
     union {
         rotk_vx_evt_base base;
+        rotk_vx_evt_sessiongroup_added sessiongroup_added;
+        rotk_vx_evt_session_added session_added;
         rotk_vx_evt_participant_added participant_added;
         rotk_vx_evt_participant_updated participant_updated;
     } event;
@@ -214,6 +279,7 @@ typedef struct voice_grant {
     char account[GRANT_ACCOUNT_MAX + 1U];
     char channel[GRANT_CHANNEL_MAX + 1U];
     char token[GRANT_TOKEN_MAX + 1U];
+    char display_name[GRANT_DISPLAY_NAME_MAX + 1U];
 } voice_grant;
 
 static HMODULE g_proxy_module;
@@ -231,7 +297,15 @@ static vx_strdup_fn g_strdup;
 static vx_free_fn g_free;
 static voice_config g_config;
 static char g_account[GRANT_ACCOUNT_MAX + 1U];
+static char g_account_handle[HUD_HANDLE_BYTES];
+static char g_channel_uri[GRANT_CHANNEL_MAX + 1U];
+static char g_compat_sessiongroup_handle[HUD_HANDLE_BYTES];
+static volatile LONG g_suppress_sessiongroup_added;
 static volatile LONG g_trace_flags;
+static volatile LONG g_message_trace_count;
+static volatile LONG g_participant_display_restored;
+static volatile LONG g_notification_response_compat;
+static volatile LONG g_remote_speaking_observed;
 
 static SRWLOCK g_hud_lock = SRWLOCK_INIT;
 static HANDLE g_hud_pipe = INVALID_HANDLE_VALUE;
@@ -297,9 +371,11 @@ int __cdecl vx_req_account_channel_update_create(void **request) {
  * Best-effort diagnostics for bootstrap failures. Each event is emitted at
  * most once per process, so a retry loop cannot grow the file or materially
  * slow the game. Messages are compile-time stage names only: credentials,
- * account names, channel URIs, and tokens are never logged.
+ * account names, channel URIs, and tokens are never logged. Numeric SDK
+ * return codes may be included when they are needed to identify a failed
+ * compatibility call.
  */
-static void proxy_trace_once(LONG flag, const char *event) {
+static void proxy_trace_line(const char *event) {
     static const WCHAR trace_file_name[] = TRACE_FILE_NAME;
     WCHAR path[32768];
     WCHAR *separator;
@@ -310,9 +386,6 @@ static void proxy_trace_once(LONG flag, const char *event) {
     DWORD bytes_written;
     int line_bytes;
 
-    if ((InterlockedOr(&g_trace_flags, flag) & flag) != 0L) {
-        return;
-    }
     GetSystemTime(&now);
     line_bytes = snprintf(
         line,
@@ -372,6 +445,13 @@ static void proxy_trace_once(LONG flag, const char *event) {
                     &bytes_written,
                     NULL);
     CloseHandle(file);
+}
+
+static void proxy_trace_once(LONG flag, const char *event) {
+    if ((InterlockedOr(&g_trace_flags, flag) & flag) != 0L) {
+        return;
+    }
+    proxy_trace_line(event);
 }
 
 static uint16_t load_le16(const uint8_t *value) {
@@ -697,25 +777,34 @@ static BOOL parse_grant(const uint8_t *wire,
     uint16_t account_bytes;
     uint16_t channel_bytes;
     uint16_t token_bytes;
+    uint16_t display_name_bytes;
+    BOOL version_two;
     size_t offset;
     uint32_t now;
 
-    if (wire_bytes < GRANT_HEADER_BYTES ||
-        memcmp(wire, "RVG1", 4U) != 0 ||
-        load_le16(wire + 14U) != 0U) {
+    if (wire_bytes < GRANT_HEADER_BYTES) {
+        return FALSE;
+    }
+    version_two = memcmp(wire, "RVG2", 4U) == 0;
+    if (!version_two && memcmp(wire, "RVG1", 4U) != 0) {
         return FALSE;
     }
     grant->expires = load_le32(wire + 4U);
     account_bytes = load_le16(wire + 8U);
     channel_bytes = load_le16(wire + 10U);
     token_bytes = load_le16(wire + 12U);
+    display_name_bytes = load_le16(wire + 14U);
     if (account_bytes < 3U ||
         account_bytes > GRANT_ACCOUNT_MAX ||
         channel_bytes > GRANT_CHANNEL_MAX ||
         token_bytes == 0U ||
         token_bytes > GRANT_TOKEN_MAX ||
+        display_name_bytes > GRANT_DISPLAY_NAME_MAX ||
+        (!version_two && display_name_bytes != 0U) ||
+        (version_two && display_name_bytes == 0U) ||
         GRANT_HEADER_BYTES + (size_t)account_bytes +
-                (size_t)channel_bytes + (size_t)token_bytes !=
+                (size_t)channel_bytes + (size_t)token_bytes +
+                (size_t)display_name_bytes !=
             wire_bytes ||
         (action == VOICE_ACTION_LOGIN && channel_bytes != 0U) ||
         (action == VOICE_ACTION_JOIN && channel_bytes < 4U)) {
@@ -749,6 +838,18 @@ static BOOL parse_grant(const uint8_t *wire,
     }
     memcpy(grant->token, wire + offset, token_bytes);
     grant->token[token_bytes] = '\0';
+    offset += token_bytes;
+    if (display_name_bytes > 0U) {
+        if (!bytes_are_visible_ascii(
+                wire + offset,
+                display_name_bytes)) {
+            return FALSE;
+        }
+        memcpy(grant->display_name,
+               wire + offset,
+               display_name_bytes);
+        grant->display_name[display_name_bytes] = '\0';
+    }
     return TRUE;
 }
 
@@ -785,7 +886,8 @@ static BOOL fetch_grant(voice_action action, voice_grant *grant) {
         authorization,
         sizeof(authorization) / sizeof(authorization[0]),
         L"Authorization: Bearer %ls\r\n"
-        L"Accept: application/octet-stream\r\n",
+        L"Accept: application/octet-stream\r\n"
+        L"X-ROTK-Vivox-Grant-Version: 2\r\n",
         g_config.session_id);
     if (written <= 0 ||
         written >=
@@ -940,6 +1042,63 @@ static BOOL request_is_accessible(void *request,
     return end <= region_end;
 }
 
+/*
+ * Temporary, credential-safe ABI diagnostics. Numeric response fields are
+ * sufficient to identify why BR1315 does not advance from login to session
+ * creation; strings, handles, account names, URIs, and tokens stay unlogged.
+ */
+static void trace_vivox_message(void *message) {
+    uint32_t message_type;
+    uint32_t subtype;
+    uint32_t return_code = 0U;
+    uint32_t status_code = 0U;
+    uint32_t request_type = 0U;
+    void *request = NULL;
+    LONG trace_index;
+    char line[256];
+
+    trace_index = InterlockedIncrement(&g_message_trace_count);
+    if (trace_index > 128L ||
+        !request_is_accessible(message, 0x40U, FALSE)) {
+        return;
+    }
+    memcpy(&message_type, (uint8_t *)message, sizeof(message_type));
+    memcpy(&subtype,
+           (uint8_t *)message + 0x18U,
+           sizeof(subtype));
+    if (message_type == VIVOX_MESSAGE_RESPONSE) {
+        memcpy(&return_code,
+               (uint8_t *)message + 0x1cU,
+               sizeof(return_code));
+        memcpy(&status_code,
+               (uint8_t *)message + 0x20U,
+               sizeof(status_code));
+        memcpy(&request,
+               (uint8_t *)message + 0x30U,
+               sizeof(request));
+        if (request_is_accessible(
+                request,
+                REQUEST_TYPE_OFFSET + sizeof(request_type),
+                FALSE)) {
+            memcpy(&request_type,
+                   (uint8_t *)request + REQUEST_TYPE_OFFSET,
+                   sizeof(request_type));
+        }
+    }
+    (void)snprintf(
+        line,
+        sizeof(line),
+        "[rotk-vivoxproxy] message[%ld]: kind=%lu subtype=0x%lx "
+        "request=0x%lx return=%lu status=%lu",
+        (long)trace_index,
+        (unsigned long)message_type,
+        (unsigned long)subtype,
+        (unsigned long)request_type,
+        (unsigned long)return_code,
+        (unsigned long)status_code);
+    proxy_trace_line(line);
+}
+
 static BOOL bounded_string(const char *value,
                            size_t maximum,
                            size_t *length_out) {
@@ -1001,10 +1160,199 @@ static void write_pointer(void *request,
     memcpy((uint8_t *)request + offset, &value, sizeof(value));
 }
 
+/*
+ * Vivox 5's XMPP backend rejects the legacy explicit session-group creation
+ * used by BR1315 with VX_E_SIP_BACKEND_REQUIRED (1105). A following
+ * sessiongroup_add_session request can create the group implicitly, so expose
+ * the legacy success shape to the game and let that supported request proceed.
+ */
+static BOOL compat_sessiongroup_create_response(void *message) {
+#if defined(ROTK_VIVOX_V5_COMPAT)
+    uint32_t message_type;
+    uint32_t response_type;
+    uint32_t return_code;
+    uint32_t status_code;
+    uint32_t request_type;
+    void *request = NULL;
+    char *requested_handle = NULL;
+    char *response_handle = NULL;
+    char *status_string = NULL;
+    char *extended_status = NULL;
+    char generated_handle[96];
+    const char *handle_source;
+    size_t handle_length = 0U;
+    uint32_t success = 0U;
+
+    if (!request_is_accessible(message, 0x48U, TRUE)) {
+        return FALSE;
+    }
+    memcpy(&message_type, (uint8_t *)message, sizeof(message_type));
+    memcpy(&response_type,
+           (uint8_t *)message + REQUEST_TYPE_OFFSET,
+           sizeof(response_type));
+    memcpy(&return_code,
+           (uint8_t *)message + RESPONSE_RETURN_CODE_OFFSET,
+           sizeof(return_code));
+    memcpy(&status_code,
+           (uint8_t *)message + RESPONSE_STATUS_CODE_OFFSET,
+           sizeof(status_code));
+    if (message_type != VIVOX_MESSAGE_RESPONSE ||
+        response_type != REQUEST_SESSIONGROUP_CREATE ||
+        return_code == 0U ||
+        status_code != 1105U) {
+        return FALSE;
+    }
+    memcpy(&request,
+           (uint8_t *)message + RESPONSE_REQUEST_OFFSET,
+           sizeof(request));
+    if (request_is_accessible(
+            request,
+            SESSIONGROUP_CREATE_HANDLE_OFFSET + sizeof(requested_handle),
+            FALSE)) {
+        memcpy(&request_type,
+               (uint8_t *)request + REQUEST_TYPE_OFFSET,
+               sizeof(request_type));
+        if (request_type == REQUEST_SESSIONGROUP_CREATE) {
+            read_pointer(
+                request,
+                SESSIONGROUP_CREATE_HANDLE_OFFSET,
+                &requested_handle);
+        }
+    }
+    if (bounded_string(requested_handle, HUD_HANDLE_BYTES - 1U, &handle_length) &&
+        handle_length > 0U) {
+        handle_source = requested_handle;
+        proxy_trace_once(
+            TRACE_SESSIONGROUP_REQUESTED_HANDLE,
+            "[rotk-vivoxproxy] compat: requested sessiongroup handle retained");
+    } else {
+        (void)snprintf(
+            generated_handle,
+            sizeof(generated_handle),
+            "rotk-sessiongroup-%lu",
+            (unsigned long)GetCurrentProcessId());
+        handle_source = generated_handle;
+        proxy_trace_once(
+            TRACE_SESSIONGROUP_GENERATED_HANDLE,
+            "[rotk-vivoxproxy] compat: generated fallback sessiongroup handle");
+    }
+    response_handle = g_strdup(handle_source);
+    if (response_handle == NULL) {
+        return FALSE;
+    }
+    write_pointer(
+        message,
+        RESPONSE_SESSIONGROUP_HANDLE_OFFSET,
+        response_handle);
+    memcpy((uint8_t *)message + RESPONSE_RETURN_CODE_OFFSET,
+           &success,
+           sizeof(success));
+    memcpy((uint8_t *)message + RESPONSE_STATUS_CODE_OFFSET,
+           &success,
+           sizeof(success));
+    read_pointer(message, RESPONSE_STATUS_STRING_OFFSET, &status_string);
+    if (request_is_accessible(status_string, 1U, TRUE)) {
+        status_string[0] = '\0';
+    }
+    read_pointer(message, RESPONSE_EXTENDED_STATUS_OFFSET, &extended_status);
+    if (request_is_accessible(extended_status, 1U, TRUE)) {
+        extended_status[0] = '\0';
+    }
+    proxy_trace_once(
+        TRACE_SESSIONGROUP_COMPAT,
+        "[rotk-vivoxproxy] compat: legacy sessiongroup create accepted");
+    return TRUE;
+#else
+    (void)message;
+    return FALSE;
+#endif
+}
+
+/*
+ * Vivox 5's XMPP backend does not implement BR1315's legacy hand-raised
+ * notification. Audio transmission and speaking events are independent from
+ * that notification, so acknowledge only this specific unsupported response
+ * to keep the old client from treating a normal PTT press as an operation
+ * failure.
+ */
+static BOOL compat_session_notification_response(void *message) {
+#if defined(ROTK_VIVOX_V5_COMPAT)
+    uint32_t message_type;
+    uint32_t response_type;
+    uint32_t return_code;
+    uint32_t status_code;
+    uint32_t request_type;
+    uint32_t success = 0U;
+    void *request = NULL;
+    char *status_string = NULL;
+    char *extended_status = NULL;
+
+    if (!request_is_accessible(message, 0x40U, TRUE)) {
+        return FALSE;
+    }
+    memcpy(&message_type, message, sizeof(message_type));
+    memcpy(&response_type,
+           (uint8_t *)message + REQUEST_TYPE_OFFSET,
+           sizeof(response_type));
+    memcpy(&return_code,
+           (uint8_t *)message + RESPONSE_RETURN_CODE_OFFSET,
+           sizeof(return_code));
+    memcpy(&status_code,
+           (uint8_t *)message + RESPONSE_STATUS_CODE_OFFSET,
+           sizeof(status_code));
+    memcpy(&request,
+           (uint8_t *)message + RESPONSE_REQUEST_OFFSET,
+           sizeof(request));
+    if (message_type != VIVOX_MESSAGE_RESPONSE ||
+        response_type != REQUEST_SESSION_SEND_NOTIFICATION ||
+        return_code == 0U ||
+        status_code != 5018U ||
+        !request_is_accessible(
+            request,
+            REQUEST_TYPE_OFFSET + sizeof(request_type),
+            FALSE)) {
+        return FALSE;
+    }
+    memcpy(&request_type,
+           (uint8_t *)request + REQUEST_TYPE_OFFSET,
+           sizeof(request_type));
+    if (request_type != REQUEST_SESSION_SEND_NOTIFICATION) {
+        return FALSE;
+    }
+    memcpy((uint8_t *)message + RESPONSE_RETURN_CODE_OFFSET,
+           &success,
+           sizeof(success));
+    memcpy((uint8_t *)message + RESPONSE_STATUS_CODE_OFFSET,
+           &success,
+           sizeof(success));
+    read_pointer(message, RESPONSE_STATUS_STRING_OFFSET, &status_string);
+    if (request_is_accessible(status_string, 1U, TRUE)) {
+        status_string[0] = '\0';
+    }
+    read_pointer(message, RESPONSE_EXTENDED_STATUS_OFFSET, &extended_status);
+    if (request_is_accessible(extended_status, 1U, TRUE)) {
+        extended_status[0] = '\0';
+    }
+    if (InterlockedCompareExchange(
+            &g_notification_response_compat,
+            1L,
+            0L) == 0L) {
+        proxy_trace_line(
+            "[rotk-vivoxproxy] compat: legacy PTT notification acknowledged");
+    }
+    return TRUE;
+#else
+    (void)message;
+    return FALSE;
+#endif
+}
+
 static BOOL mutate_login(void *request,
                          const voice_grant *grant) {
+    char *old_display_name;
     char *old_account;
     char *old_token;
+    char *new_display_name = NULL;
     char *new_account;
     char *new_token;
 
@@ -1020,19 +1368,51 @@ static BOOL mutate_login(void *request,
         (void)g_free(new_account);
         return FALSE;
     }
+    if (grant->display_name[0] != '\0') {
+        new_display_name = g_strdup(grant->display_name);
+        if (new_display_name == NULL) {
+            (void)g_free(new_account);
+            (void)g_free(new_token);
+            return FALSE;
+        }
+    }
+    read_pointer(
+        request,
+        LOGIN_DISPLAY_NAME_OFFSET,
+        &old_display_name);
     read_pointer(request, LOGIN_ACCOUNT_OFFSET, &old_account);
     read_pointer(request, LOGIN_TOKEN_OFFSET, &old_token);
+    if (new_display_name != NULL) {
+        write_pointer(
+            request,
+            LOGIN_DISPLAY_NAME_OFFSET,
+            new_display_name);
+    }
     write_pointer(request, LOGIN_ACCOUNT_OFFSET, new_account);
     write_pointer(request, LOGIN_TOKEN_OFFSET, new_token);
-    if (old_account != NULL) {
+    if (old_display_name != NULL &&
+        new_display_name != NULL) {
+        (void)g_free(old_display_name);
+    }
+    if (old_account != NULL &&
+        (new_display_name == NULL ||
+         old_account != old_display_name)) {
         (void)g_free(old_account);
     }
-    if (old_token != NULL && old_token != old_account) {
+    if (old_token != NULL &&
+        old_token != old_account &&
+        (new_display_name == NULL ||
+         old_token != old_display_name)) {
         (void)g_free(old_token);
     }
     memcpy(g_account,
            grant->account,
            strlen(grant->account) + 1U);
+    if (new_display_name != NULL) {
+        proxy_trace_once(
+            TRACE_LOGIN_DISPLAY_NAME_APPLIED,
+            "[rotk-vivoxproxy] compat: native participant display name applied");
+    }
     return TRUE;
 }
 
@@ -1067,6 +1447,61 @@ static BOOL mutate_join(void *request,
     if (old_token != NULL) {
         (void)g_free(old_token);
     }
+    return TRUE;
+}
+
+static BOOL mutate_sessiongroup_context(
+    void *request,
+    const voice_grant *grant) {
+    char *old_account_handle;
+    char *old_session_handle;
+    char *new_account_handle;
+    char *new_session_handle;
+
+    if (!request_is_accessible(
+            request,
+            SESSIONGROUP_REQUEST_BYTES,
+            TRUE) ||
+        g_account_handle[0] == '\0' ||
+        grant == NULL ||
+        grant->channel[0] == '\0') {
+        return FALSE;
+    }
+    new_account_handle = g_strdup(g_account_handle);
+    if (new_account_handle == NULL) {
+        return FALSE;
+    }
+    new_session_handle = g_strdup(grant->channel);
+    if (new_session_handle == NULL) {
+        (void)g_free(new_account_handle);
+        return FALSE;
+    }
+    read_pointer(
+        request,
+        SESSIONGROUP_ACCOUNT_OFFSET,
+        &old_account_handle);
+    read_pointer(
+        request,
+        SESSIONGROUP_SESSION_HANDLE_OFFSET,
+        &old_session_handle);
+    write_pointer(
+        request,
+        SESSIONGROUP_ACCOUNT_OFFSET,
+        new_account_handle);
+    write_pointer(
+        request,
+        SESSIONGROUP_SESSION_HANDLE_OFFSET,
+        new_session_handle);
+    if (old_account_handle != NULL) {
+        (void)g_free(old_account_handle);
+    }
+    if (old_session_handle != NULL &&
+        old_session_handle != old_account_handle) {
+        (void)g_free(old_session_handle);
+    }
+    memcpy(g_channel_uri,
+           grant->channel,
+           strlen(grant->channel) + 1U);
     return TRUE;
 }
 
@@ -1184,6 +1619,325 @@ static void hud_initialize_event_base(rotk_vx_evt_base *base,
     base->message.create_time_ms = (uint64_t)GetTickCount64();
     base->type = event_type;
     base->extended_status_info = NULL;
+}
+
+/*
+ * A successful Vivox 4 session-group create emits both the response and an
+ * evt_sessiongroup_added message. Vivox 5 rejects the obsolete explicit
+ * create request before it can emit that event. BR1315 waits for the event
+ * before submitting its queued session join, so reproduce the legacy event
+ * immediately after adapting the response.
+ */
+static void compat_queue_sessiongroup_added(void *message) {
+#if defined(ROTK_VIVOX_V5_COMPAT)
+    void *request = NULL;
+    char *sessiongroup_handle = NULL;
+    char *account_handle = NULL;
+    char *alias_username = NULL;
+    size_t sessiongroup_bytes = 0U;
+    size_t account_bytes = 0U;
+    size_t alias_bytes = 0U;
+    size_t string_bytes;
+    uint32_t request_type;
+    int32_t sessiongroup_type = 0;
+    hud_synthetic_event *node;
+    rotk_vx_evt_sessiongroup_added *event;
+    char *cursor;
+
+    if (!request_is_accessible(message, 0x48U, FALSE)) {
+        proxy_trace_once(
+            TRACE_SESSIONGROUP_EVENT_BAD_MESSAGE,
+            "[rotk-vivoxproxy] compat: sessiongroup event message unavailable");
+        return;
+    }
+    read_pointer(
+        message,
+        RESPONSE_SESSIONGROUP_HANDLE_OFFSET,
+        &sessiongroup_handle);
+    memcpy(&request,
+           (uint8_t *)message + RESPONSE_REQUEST_OFFSET,
+           sizeof(request));
+    if (!request_is_accessible(request, 0x58U, FALSE)) {
+        proxy_trace_once(
+            TRACE_SESSIONGROUP_EVENT_BAD_REQUEST,
+            "[rotk-vivoxproxy] compat: sessiongroup event request unavailable");
+        return;
+    }
+    memcpy(&request_type,
+           (uint8_t *)request + REQUEST_TYPE_OFFSET,
+           sizeof(request_type));
+    if (request_type != REQUEST_SESSIONGROUP_CREATE) {
+        proxy_trace_once(
+            TRACE_SESSIONGROUP_EVENT_BAD_REQUEST,
+            "[rotk-vivoxproxy] compat: sessiongroup event request mismatch");
+        return;
+    }
+    read_pointer(
+        request,
+        SESSIONGROUP_CREATE_ACCOUNT_OFFSET,
+        &account_handle);
+    memcpy(&sessiongroup_type,
+           (uint8_t *)request + SESSIONGROUP_CREATE_TYPE_OFFSET,
+           sizeof(sessiongroup_type));
+    read_pointer(
+        request,
+        SESSIONGROUP_CREATE_ALIAS_OFFSET,
+        &alias_username);
+    if (!bounded_string(sessiongroup_handle,
+                        HUD_HANDLE_BYTES - 1U,
+                        &sessiongroup_bytes) ||
+        sessiongroup_bytes == 0U ||
+        !bounded_string(account_handle,
+                        HUD_HANDLE_BYTES - 1U,
+                        &account_bytes) ||
+        account_bytes == 0U) {
+        proxy_trace_once(
+            TRACE_SESSIONGROUP_EVENT_BAD_HANDLES,
+            "[rotk-vivoxproxy] compat: sessiongroup event handles unavailable");
+        return;
+    }
+    if (!bounded_string(alias_username,
+                        HUD_HANDLE_BYTES - 1U,
+                        &alias_bytes)) {
+        alias_username = NULL;
+        alias_bytes = 0U;
+    }
+    AcquireSRWLockExclusive(&g_voice_lock);
+    memcpy(g_account_handle,
+           account_handle,
+           account_bytes + 1U);
+    ReleaseSRWLockExclusive(&g_voice_lock);
+    string_bytes =
+        sessiongroup_bytes + 1U +
+        account_bytes + 1U +
+        (alias_username == NULL ? 0U : alias_bytes + 1U);
+    node = hud_allocate_event(string_bytes);
+    if (node == NULL) {
+        proxy_trace_once(
+            TRACE_SESSIONGROUP_EVENT_ALLOC_FAILED,
+            "[rotk-vivoxproxy] compat: sessiongroup event allocation failed");
+        return;
+    }
+    event = &node->event.sessiongroup_added;
+    cursor = node->strings;
+    hud_initialize_event_base(
+        &event->base,
+        VIVOX_EVENT_SESSIONGROUP_ADDED);
+    event->sessiongroup_handle =
+        hud_copy_event_string(&cursor, sessiongroup_handle);
+    event->account_handle =
+        hud_copy_event_string(&cursor, account_handle);
+    event->type = sessiongroup_type;
+    event->alias_username =
+        alias_username == NULL
+            ? NULL
+            : hud_copy_event_string(&cursor, alias_username);
+
+    AcquireSRWLockExclusive(&g_hud_lock);
+    if (hud_queue_event_locked(node)) {
+        AcquireSRWLockExclusive(&g_voice_lock);
+        memcpy(g_compat_sessiongroup_handle,
+               sessiongroup_handle,
+               sessiongroup_bytes + 1U);
+        InterlockedExchange(
+            &g_suppress_sessiongroup_added,
+            1L);
+        ReleaseSRWLockExclusive(&g_voice_lock);
+        proxy_trace_once(
+            TRACE_SESSIONGROUP_EVENT,
+            "[rotk-vivoxproxy] compat: legacy sessiongroup event queued");
+    }
+    ReleaseSRWLockExclusive(&g_hud_lock);
+#else
+    (void)message;
+#endif
+}
+
+static BOOL compat_suppress_real_sessiongroup_added(
+    void *message) {
+#if defined(ROTK_VIVOX_V5_COMPAT)
+    rotk_vx_evt_base *base;
+    char *sessiongroup_handle = NULL;
+    size_t sessiongroup_bytes = 0U;
+    BOOL suppress = FALSE;
+
+    if (InterlockedCompareExchange(
+            &g_suppress_sessiongroup_added,
+            0L,
+            0L) == 0L ||
+        !request_is_accessible(
+            message,
+            sizeof(rotk_vx_evt_sessiongroup_added),
+            FALSE)) {
+        return FALSE;
+    }
+    base = (rotk_vx_evt_base *)message;
+    if (base->message.type != VIVOX_MESSAGE_EVENT ||
+        base->type != VIVOX_EVENT_SESSIONGROUP_ADDED) {
+        return FALSE;
+    }
+    read_pointer(message, 0x28U, &sessiongroup_handle);
+    if (!bounded_string(sessiongroup_handle,
+                        HUD_HANDLE_BYTES - 1U,
+                        &sessiongroup_bytes) ||
+        sessiongroup_bytes == 0U) {
+        return FALSE;
+    }
+    AcquireSRWLockExclusive(&g_voice_lock);
+    if (g_suppress_sessiongroup_added != 0L &&
+        strcmp(g_compat_sessiongroup_handle,
+               sessiongroup_handle) == 0) {
+        SecureZeroMemory(
+            g_compat_sessiongroup_handle,
+            sizeof(g_compat_sessiongroup_handle));
+        InterlockedExchange(
+            &g_suppress_sessiongroup_added,
+            0L);
+        suppress = TRUE;
+    }
+    ReleaseSRWLockExclusive(&g_voice_lock);
+    if (suppress) {
+        proxy_trace_once(
+            TRACE_SESSIONGROUP_REAL_EVENT_SUPPRESSED,
+            "[rotk-vivoxproxy] compat: duplicate sessiongroup event suppressed");
+    }
+    return suppress;
+#else
+    (void)message;
+    return FALSE;
+#endif
+}
+
+/*
+ * Vivox 5 deliberately leaves evt_session_added::uri empty. BR1315 predates
+ * that API change and uses the URI to match the event to its pending session.
+ * The proxy gives Vivox 5 a URI-based session handle and restores the same
+ * validated channel URI in the legacy field before BR1315 sees the event.
+ */
+static void compat_restore_session_added_uri(void *message) {
+#if defined(ROTK_VIVOX_V5_COMPAT)
+    rotk_vx_evt_session_added *event;
+    char *uri = NULL;
+    char channel_uri[GRANT_CHANNEL_MAX + 1U];
+    char *restored_uri;
+    size_t uri_bytes = 0U;
+
+    if (!request_is_accessible(
+            message,
+            sizeof(rotk_vx_evt_session_added),
+            TRUE)) {
+        return;
+    }
+    event = (rotk_vx_evt_session_added *)message;
+    if (event->base.message.type != VIVOX_MESSAGE_EVENT ||
+        event->base.type != VIVOX_EVENT_SESSION_ADDED) {
+        return;
+    }
+    read_pointer(message, 0x38U, &uri);
+    if (bounded_string(uri, GRANT_CHANNEL_MAX, &uri_bytes) &&
+        uri_bytes != 0U) {
+        return;
+    }
+    AcquireSRWLockShared(&g_voice_lock);
+    memcpy(channel_uri, g_channel_uri, sizeof(channel_uri));
+    ReleaseSRWLockShared(&g_voice_lock);
+    channel_uri[GRANT_CHANNEL_MAX] = '\0';
+    if (channel_uri[0] == '\0') {
+        return;
+    }
+    restored_uri = g_strdup(channel_uri);
+    SecureZeroMemory(channel_uri, sizeof(channel_uri));
+    if (restored_uri == NULL) {
+        return;
+    }
+    write_pointer(message, 0x38U, restored_uri);
+    proxy_trace_once(
+        TRACE_SESSION_URI_RESTORED,
+        "[rotk-vivoxproxy] compat: legacy session URI restored");
+#else
+    (void)message;
+#endif
+}
+
+/*
+ * BR1315 resolves a voice participant through the deprecated display_name
+ * member. Vivox 5 keeps the newer displayname member populated but can leave
+ * display_name empty. Restore the legacy member so the existing H1Z1
+ * nameplate/speaker-icon path can associate later speaking updates with the
+ * correct player entity.
+ */
+static void compat_restore_participant_display_name(void *message) {
+#if defined(ROTK_VIVOX_V5_COMPAT)
+    rotk_vx_evt_participant_added *event =
+        (rotk_vx_evt_participant_added *)message;
+    size_t old_name_bytes = 0U;
+    size_t current_name_bytes = 0U;
+    char *restored_name;
+
+    if (!request_is_accessible(
+            message,
+            sizeof(*event),
+            TRUE) ||
+        event->base.message.type != VIVOX_MESSAGE_EVENT ||
+        event->base.type != VIVOX_EVENT_PARTICIPANT_ADDED) {
+        return;
+    }
+    if (bounded_string(
+            event->display_name,
+            ROTK_VOICE_HUD_MAX_NAME_BYTES,
+            &old_name_bytes) &&
+        old_name_bytes != 0U) {
+        return;
+    }
+    if (!bounded_string(
+            event->displayname,
+            ROTK_VOICE_HUD_MAX_NAME_BYTES,
+            &current_name_bytes) ||
+        current_name_bytes == 0U) {
+        return;
+    }
+    restored_name = g_strdup(event->displayname);
+    if (restored_name == NULL) {
+        return;
+    }
+    event->display_name = restored_name;
+    if (InterlockedCompareExchange(
+            &g_participant_display_restored,
+            1L,
+            0L) == 0L) {
+        proxy_trace_line(
+            "[rotk-vivoxproxy] compat: legacy participant display name restored");
+    }
+#else
+    (void)message;
+#endif
+}
+
+static void compat_observe_remote_speaking(void *message) {
+#if defined(ROTK_VIVOX_V5_COMPAT)
+    const rotk_vx_evt_participant_updated *event =
+        (const rotk_vx_evt_participant_updated *)message;
+
+    if (!request_is_accessible(
+            message,
+            sizeof(*event),
+            FALSE) ||
+        event->base.message.type != VIVOX_MESSAGE_EVENT ||
+        event->base.type != VIVOX_EVENT_PARTICIPANT_UPDATED ||
+        event->is_speaking == 0 ||
+        event->is_current_user != 0) {
+        return;
+    }
+    if (InterlockedCompareExchange(
+            &g_remote_speaking_observed,
+            1L,
+            0L) == 0L) {
+        proxy_trace_line(
+            "[rotk-vivoxproxy] compat: authenticated remote speaking event observed");
+    }
+#else
+    (void)message;
+#endif
 }
 
 static hud_synthetic_event *hud_build_participant_added_locked(
@@ -1725,13 +2479,29 @@ int __cdecl vx_get_message(void **message) {
     }
     ReleaseSRWLockExclusive(&g_hud_lock);
 
-    result = g_get_message(message);
-    if (result == 0 && *message != NULL) {
+    for (;;) {
+        result = g_get_message(message);
+        if (result != 0 || *message == NULL) {
+            return result;
+        }
+        trace_vivox_message(*message);
+        if (compat_suppress_real_sessiongroup_added(*message)) {
+            (void)g_destroy_evt(*message);
+            *message = NULL;
+            continue;
+        }
+        compat_restore_session_added_uri(*message);
+        compat_restore_participant_display_name(*message);
+        compat_observe_remote_speaking(*message);
+        (void)compat_session_notification_response(*message);
+        if (compat_sessiongroup_create_response(*message)) {
+            compat_queue_sessiongroup_added(*message);
+        }
         AcquireSRWLockExclusive(&g_hud_lock);
         hud_cache_session_from_message_locked(*message);
         ReleaseSRWLockExclusive(&g_hud_lock);
+        return result;
     }
-    return result;
 }
 
 int __cdecl destroy_evt(void *event) {
@@ -1822,6 +2592,10 @@ int __cdecl vx_issue_request3(void *request, int *request_count) {
     memcpy(&request_type,
            (uint8_t *)request + REQUEST_TYPE_OFFSET,
            sizeof(request_type));
+    if (request_type ==
+        REQUEST_SESSION_SEND_NOTIFICATION) {
+        return g_issue_request(request, request_count);
+    }
     action = action_for_type(request_type);
     if (action == VOICE_ACTION_NONE) {
         return g_issue_request(request, request_count);
@@ -1874,11 +2648,13 @@ int __cdecl vx_issue_request3(void *request, int *request_count) {
                               SESSION_TOKEN_OFFSET,
                               &grant);
     } else {
-        mutated = mutate_join(request,
-                              SESSIONGROUP_REQUEST_BYTES,
-                              SESSIONGROUP_URI_OFFSET,
-                              SESSIONGROUP_TOKEN_OFFSET,
-                              &grant);
+        mutated =
+            mutate_sessiongroup_context(request, &grant) &&
+            mutate_join(request,
+                        SESSIONGROUP_REQUEST_BYTES,
+                        SESSIONGROUP_URI_OFFSET,
+                        SESSIONGROUP_TOKEN_OFFSET,
+                        &grant);
     }
     SecureZeroMemory(&grant, sizeof(grant));
     ReleaseSRWLockExclusive(&g_voice_lock);
@@ -1900,6 +2676,9 @@ int __cdecl vx_issue_request3(void *request, int *request_count) {
     if (request_type == REQUEST_LOGIN && result != 0) {
         AcquireSRWLockExclusive(&g_voice_lock);
         SecureZeroMemory(g_account, sizeof(g_account));
+        SecureZeroMemory(
+            g_account_handle,
+            sizeof(g_account_handle));
         ReleaseSRWLockExclusive(&g_voice_lock);
     }
     return result;
