@@ -57,6 +57,7 @@ export interface InstallRequest {
   destinationRoot: string;
   shimPath: string;
   vivoxProxyPath: string;
+  vivoxRuntimePath: string;
   launcherVersion: string;
   signal: AbortSignal;
   onProgress(progress: InstallProgress): void;
@@ -66,6 +67,7 @@ export interface AdoptExistingClientRequest {
   root: string;
   shimPath: string;
   vivoxProxyPath: string;
+  vivoxRuntimePath: string;
   launcherVersion: string;
   onProgress(progress: InstallProgress): void;
 }
@@ -235,7 +237,11 @@ export async function adoptExistingClient(
 
   await copyOnce(join(root, "ClientConfig.ini"), join(root, "ClientConfig.original.ini"));
   await deployOpenSourceShim(root, request.shimPath);
-  await deployVivoxCompatibility(root, request.vivoxProxyPath);
+  await deployVivoxCompatibility(
+    root,
+    request.vivoxProxyPath,
+    request.vivoxRuntimePath,
+  );
   await patchBattlEye(root);
 
   const marker: InstallationMarker = {
@@ -371,7 +377,11 @@ export async function installClient(request: InstallRequest): Promise<Installati
     });
     await copyFile(join(stagingRoot, "ClientConfig.ini"), join(stagingRoot, "ClientConfig.original.ini"));
     await deployOpenSourceShim(stagingRoot, request.shimPath);
-    await deployVivoxCompatibility(stagingRoot, request.vivoxProxyPath);
+    await deployVivoxCompatibility(
+      stagingRoot,
+      request.vivoxProxyPath,
+      request.vivoxRuntimePath,
+    );
     await patchBattlEye(stagingRoot);
 
     const marker: InstallationMarker = {

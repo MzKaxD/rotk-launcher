@@ -30,6 +30,7 @@ import {
   WEBSITE_ORIGIN,
   resolveBundledShimPath,
   resolveBundledVivoxProxyPath,
+  resolveBundledVivoxRuntimePath,
 } from "./constants.js";
 import { ConfigStore } from "./services/config-store.js";
 import { adoptExistingClient, installClient } from "./services/installer.js";
@@ -188,17 +189,19 @@ function ensureTrustedSender(event: IpcMainInvokeEvent): void {
 
 function isTrustedRendererUrl(candidate: string): boolean {
   try {
-    if (app.isPackaged) {
-      const parsed = new URL(candidate);
-      if (parsed.protocol !== "file:") return false;
-      parsed.hash = "";
-      parsed.search = "";
-      const expected = resolve(join(app.getAppPath(), "dist", "index.html")).toLocaleLowerCase("en-US");
-      const actual = resolve(fileURLToPath(parsed)).toLocaleLowerCase("en-US");
-      return actual === expected;
+    const developmentServerUrl = process.env.VITE_DEV_SERVER_URL;
+    if (!app.isPackaged && developmentServerUrl) {
+      const developmentOrigin = new URL(developmentServerUrl).origin;
+      return new URL(candidate).origin === developmentOrigin;
     }
-    const devOrigin = new URL(process.env.VITE_DEV_SERVER_URL ?? "http://localhost:5173").origin;
-    return new URL(candidate).origin === devOrigin;
+
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "file:") return false;
+    parsed.hash = "";
+    parsed.search = "";
+    const expected = resolve(join(app.getAppPath(), "dist", "index.html")).toLocaleLowerCase("en-US");
+    const actual = resolve(fileURLToPath(parsed)).toLocaleLowerCase("en-US");
+    return actual === expected;
   } catch {
     return false;
   }
@@ -383,6 +386,7 @@ function registerIpc(): void {
               root: sourceRoot,
               shimPath: resolveBundledShimPath(),
               vivoxProxyPath: resolveBundledVivoxProxyPath(),
+              vivoxRuntimePath: resolveBundledVivoxRuntimePath(),
               launcherVersion: app.getVersion(),
               onProgress,
             })
@@ -391,6 +395,7 @@ function registerIpc(): void {
               destinationRoot: installationRoot,
               shimPath: resolveBundledShimPath(),
               vivoxProxyPath: resolveBundledVivoxProxyPath(),
+              vivoxRuntimePath: resolveBundledVivoxRuntimePath(),
               launcherVersion: app.getVersion(),
               signal: installAbortController.signal,
               onProgress,
@@ -445,6 +450,7 @@ function registerIpc(): void {
           logsRoot: join(app.getPath("userData"), "logs"),
           bundledShimPath: resolveBundledShimPath(),
           bundledVivoxProxyPath: resolveBundledVivoxProxyPath(),
+          bundledVivoxRuntimePath: resolveBundledVivoxRuntimePath(),
           onExit: () => {
             gamePid = null;
             phase = "ready";

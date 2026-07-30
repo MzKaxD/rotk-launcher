@@ -138,3 +138,9 @@ Les contributions sont bienvenues : consultez [CONTRIBUTING.md](CONTRIBUTING.md)
 ## Licence
 
 Le code du launcher, y compris le shim C, est distribué sous **GNU GPL v3.0 ou ultérieure** (`GPL-3.0-or-later`). Consultez [LICENSE](LICENSE), [ASSET_LICENSE.md](ASSET_LICENSE.md) et [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Vivox runtime distribution
+
+The Unity-signed Vivox 5 client runtime is versioned in this repository and packaged in official launcher releases. The launcher verifies its expected SHA-256 before deploying it to the selected game client. Launcher installation, updates, and Vivox deployment do not download this DLL from any external host.
+
+See `THIRD_PARTY_NOTICES.md` for the applicable third-party notice.

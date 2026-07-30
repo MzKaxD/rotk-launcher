@@ -60,12 +60,30 @@ jobs:
           $allowedDll = [System.IO.Path]::GetFullPath(
             (Join-Path $env:GITHUB_WORKSPACE "resources\patches\steam_api64.dll")
           )
+          $allowedVivoxDll = [System.IO.Path]::GetFullPath(
+            (Join-Path $env:GITHUB_WORKSPACE "resources\patches\vivoxsdk_x64_v5.dll")
+          )
           $unexpectedDlls = Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Recurse -File -Filter "*.dll" |
-            Where-Object { $_.FullName -ne $allowedDll } |
+            Where-Object { @($allowedDll, $allowedVivoxDll) -notcontains $_.FullName } |
             Select-Object -ExpandProperty FullName
           if ($unexpectedDlls) {
             $unexpectedDlls | ForEach-Object { Write-Error "DLL inattendu dans le dépôt : $_" }
             throw "Seul le shim open source compilable peut être versionné."
+          }
+
+          $vivoxHash = (Get-FileHash -LiteralPath $allowedVivoxDll -Algorithm SHA256).Hash
+          if ($vivoxHash -ne "33A7F704EDA23DDA9CCBD9EBA1FDA2F0589211E9C61EC9D1F9C797ACC624EA44") {
+            throw "Unexpected Vivox 5 runtime SHA-256: $vivoxHash"
+          }
+          $vivoxSignature = Get-AuthenticodeSignature -LiteralPath $allowedVivoxDll
+          if ($vivoxSignature.Status -ne "Valid" -or -not $vivoxSignature.SignerCertificate) {
+            throw "The Vivox 5 runtime has an invalid Authenticode signature."
+          }
+          if ($vivoxSignature.SignerCertificate.Subject -notmatch "CN=Unity Technologies SF") {
+            throw "The Vivox 5 runtime was not signed by Unity Technologies SF."
+          }
+          if (-not $vivoxSignature.TimeStamperCertificate) {
+            throw "The Vivox 5 runtime Authenticode signature has no trusted timestamp."
           }
 
       - name: Installer les dépendances verrouillées
@@ -149,6 +167,9 @@ jobs:
           }
           $hash = (Get-FileHash -LiteralPath $bundled -Algorithm SHA256).Hash
           Write-Host "Proxy Vivox compilé depuis les sources publiques : $hash"
+          if ($hash -ne "F67EC183AC66DFC8239094582F3479E41A4E5C6FB1AD2F7DF4D03A9196117629") {
+            throw "Unexpected Vivox proxy SHA-256: $hash"
+          }
 
       - name: Typer, tester et construire le launcher
         run: npm run build
