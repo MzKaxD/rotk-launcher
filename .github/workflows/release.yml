@@ -61,6 +61,9 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Verify the bundled official Vivox 5 runtime
+        run: npm run verify:vivox-runtime
+
       - name: Detect the Windows signing configuration
         id: signing
         shell: pwsh
@@ -97,6 +100,10 @@ jobs:
       - name: Test and build
         run: |
           npm run build:vivox
+          $proxyHash = (Get-FileHash -LiteralPath "resources\patches\vivoxsdk_x64.dll" -Algorithm SHA256).Hash
+          if ($proxyHash -ne "F67EC183AC66DFC8239094582F3479E41A4E5C6FB1AD2F7DF4D03A9196117629") {
+            throw "Unexpected Vivox proxy SHA-256: $proxyHash"
+          }
           npm run build
 
       - name: Package NSIS installer
@@ -115,9 +122,36 @@ jobs:
             Get-Item -LiteralPath "release\win-unpacked\ROTK Launcher.exe"
             Get-Item -LiteralPath "release\win-unpacked\resources\patches\steam_api64.dll"
             Get-Item -LiteralPath "release\win-unpacked\resources\patches\vivoxsdk_x64.dll"
+            Get-Item -LiteralPath "release\win-unpacked\resources\patches\vivoxsdk_x64_v5.dll"
           )
-          if ($targets.Count -lt 4) {
+          if ($targets.Count -lt 5) {
             throw "The installer, packaged launcher or runtime compatibility DLL is missing."
+          }
+
+          $vivoxRuntime = $targets |
+            Where-Object { $_.Name -eq "vivoxsdk_x64_v5.dll" } |
+            Select-Object -First 1
+          $vivoxHash = (Get-FileHash -LiteralPath $vivoxRuntime.FullName -Algorithm SHA256).Hash
+          $vivoxProxy = $targets |
+            Where-Object { $_.Name -eq "vivoxsdk_x64.dll" } |
+            Select-Object -First 1
+          $proxyHash = (Get-FileHash -LiteralPath $vivoxProxy.FullName -Algorithm SHA256).Hash
+          if ($proxyHash -ne "F67EC183AC66DFC8239094582F3479E41A4E5C6FB1AD2F7DF4D03A9196117629") {
+            throw "Unexpected packaged Vivox proxy SHA-256: $proxyHash"
+          }
+
+          if ($vivoxHash -ne "33A7F704EDA23DDA9CCBD9EBA1FDA2F0589211E9C61EC9D1F9C797ACC624EA44") {
+            throw "Unexpected packaged Vivox 5 runtime SHA-256: $vivoxHash"
+          }
+          $vivoxSignature = Get-AuthenticodeSignature -LiteralPath $vivoxRuntime.FullName
+          if ($vivoxSignature.Status -ne "Valid" -or -not $vivoxSignature.SignerCertificate) {
+            throw "The packaged Vivox 5 runtime has an invalid Authenticode signature."
+          }
+          if ($vivoxSignature.SignerCertificate.Subject -notmatch "CN=Unity Technologies SF") {
+            throw "The packaged Vivox 5 runtime was not signed by Unity Technologies SF."
+          }
+          if (-not $vivoxSignature.TimeStamperCertificate) {
+            throw "The packaged Vivox 5 runtime has no trusted timestamp."
           }
 
           if ($env:RELEASE_SIGNED -ne "true") {
@@ -127,7 +161,8 @@ jobs:
           }
 
           $publisher = $null
-          foreach ($target in $targets) {
+          $projectTargets = $targets | Where-Object { $_.Name -ne "vivoxsdk_x64_v5.dll" }
+          foreach ($target in $projectTargets) {
             $signature = Get-AuthenticodeSignature -LiteralPath $target.FullName
             if ($signature.Status -ne "Valid" -or -not $signature.SignerCertificate) {
               throw "Invalid Authenticode signature on $($target.Name): $($signature.Status)"

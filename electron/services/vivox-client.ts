@@ -1,13 +1,30 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { access, copyFile, stat } from "node:fs/promises";
-import { constants as fsConstants } from "node:fs";
+import { copyFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 export const VIVOX_STOCK_V4_SHA256 =
   "d6915a466a905ae55f7e20019e01228c92cc86ce793a9fc050b49258a210c7b1";
 export const VIVOX_STOCK_V5_SHA256 =
   "33a7f704eda23dda9ccbd9eba1fda2f0589211e9c61ec9d1f9c797acc624ea44";
+export const VIVOX_PROXY_SHA256 =
+  "f67ec183ac66dfc8239094582f3479e41a4e5c6fb1ad2f7df4d03a9196117629";
+
+interface VivoxDeploymentPolicy {
+  stockV4Sha256: string;
+  stockV5Sha256: string;
+  proxySha256: string;
+  proxyMinBytes: number;
+  proxyMaxBytes: number;
+}
+
+const DEFAULT_POLICY: VivoxDeploymentPolicy = {
+  stockV4Sha256: VIVOX_STOCK_V4_SHA256,
+  stockV5Sha256: VIVOX_STOCK_V5_SHA256,
+  proxySha256: VIVOX_PROXY_SHA256,
+  proxyMinBytes: 16_384,
+  proxyMaxBytes: 2 * 1024 * 1024,
+};
 
 async function sha256(filePath: string): Promise<string> {
   const hash = createHash("sha256");
@@ -17,53 +34,106 @@ async function sha256(filePath: string): Promise<string> {
   return hash.digest("hex");
 }
 
-/**
- * Installs only ROTK's open-source compatibility layer. The official Vivox 5
- * SDK must already exist in the supported H1Z1 client.
- */
-export async function deployVivoxCompatibility(
+async function fileHash(filePath: string): Promise<string> {
+  return sha256(filePath).catch(() => "");
+}
+
+async function assertBundledFiles(
+  bundledProxyPath: string,
+  bundledRuntimePath: string,
+  policy: VivoxDeploymentPolicy,
+): Promise<void> {
+  const proxy = await stat(bundledProxyPath).catch(() => null);
+  if (
+    !proxy?.isFile() ||
+    proxy.size < policy.proxyMinBytes ||
+    proxy.size > policy.proxyMaxBytes ||
+    await fileHash(bundledProxyPath) !== policy.proxySha256
+  ) {
+    throw new Error("Le proxy vocal ROTK embarqu\u00e9 est invalide.");
+  }
+
+  const runtime = await stat(bundledRuntimePath).catch(() => null);
+  if (
+    !runtime?.isFile() ||
+    await fileHash(bundledRuntimePath) !== policy.stockV5Sha256
+  ) {
+    throw new Error("Le runtime Vivox 5 embarqu\u00e9 est invalide.");
+  }
+}
+
+async function deployVivoxCompatibilityWithPolicy(
   root: string,
   bundledProxyPath: string,
+  bundledRuntimePath: string,
+  policy: VivoxDeploymentPolicy,
 ): Promise<void> {
-  await access(bundledProxyPath, fsConstants.R_OK);
-  const proxy = await stat(bundledProxyPath);
-  if (!proxy.isFile() || proxy.size < 16_384 || proxy.size > 2 * 1024 * 1024) {
-    throw new Error("Le proxy vocal ROTK embarqué est invalide.");
-  }
+  // Validate both bundled artifacts before modifying the game installation.
+  await assertBundledFiles(bundledProxyPath, bundledRuntimePath, policy);
 
   const activePath = join(root, "vivoxsdk_x64.dll");
   const backupPath = join(root, "vivoxsdk_x64.original.dll");
   const legacyBackupPath = join(root, "vivoxsdk_x64_original.dll");
   const v5Path = join(root, "vivoxsdk_x64_v5.dll");
+
   const active = await stat(activePath).catch(() => null);
-  if (!active?.isFile()) throw new Error("Le SDK Vivox historique est introuvable.");
-  if (await sha256(v5Path).catch(() => "") !== VIVOX_STOCK_V5_SHA256) {
-    throw new Error("La version Vivox 5 attendue est absente du client H1Z1.");
+  if (!active?.isFile()) {
+    throw new Error("Le SDK Vivox historique est introuvable.");
   }
 
-  let backup = await stat(backupPath).catch(() => null);
-  if (backup === null) {
-    const legacyBackupHash = await sha256(legacyBackupPath).catch(() => "");
-    if (legacyBackupHash === VIVOX_STOCK_V4_SHA256) {
-      await copyFile(legacyBackupPath, backupPath, fsConstants.COPYFILE_EXCL);
-      backup = await stat(backupPath);
+  const activeHash = await fileHash(activePath);
+  const backupHash = await fileHash(backupPath);
+
+  if (backupHash !== policy.stockV4Sha256) {
+    const legacyBackupHash = await fileHash(legacyBackupPath);
+    if (legacyBackupHash === policy.stockV4Sha256) {
+      await copyFile(legacyBackupPath, backupPath);
+    } else if (activeHash === policy.stockV4Sha256) {
+      await copyFile(activePath, backupPath);
     } else {
-      if (await sha256(activePath) !== VIVOX_STOCK_V4_SHA256) {
-        throw new Error("Le SDK Vivox actif est inconnu; vérifie les fichiers H1Z1.");
-      }
-      await copyFile(activePath, backupPath, fsConstants.COPYFILE_EXCL);
-      backup = await stat(backupPath);
+      throw new Error("La sauvegarde du SDK Vivox historique est invalide.");
     }
   }
-  if (!backup.isFile() || await sha256(backupPath) !== VIVOX_STOCK_V4_SHA256) {
+
+  if (await fileHash(backupPath) !== policy.stockV4Sha256) {
     throw new Error("La sauvegarde du SDK Vivox historique est invalide.");
   }
 
-  const proxyHash = await sha256(bundledProxyPath);
-  await copyFile(bundledProxyPath, activePath);
-  if (await sha256(activePath) !== proxyHash) {
-    throw new Error("Le proxy vocal ROTK n'a pas été copié correctement.");
+  // Repair an absent, stale, or corrupt Vivox 5 runtime from the validated copy.
+  if (await fileHash(v5Path) !== policy.stockV5Sha256) {
+    await copyFile(bundledRuntimePath, v5Path);
+  }
+  if (await fileHash(v5Path) !== policy.stockV5Sha256) {
+    throw new Error("La version Vivox 5 attendue est absente du client H1Z1.");
+  }
+
+  // Avoid rewriting the proxy on every launch, but always verify the final state.
+  if (activeHash !== policy.proxySha256) {
+    await copyFile(bundledProxyPath, activePath);
+  }
+  if (await fileHash(activePath) !== policy.proxySha256) {
+    throw new Error("Le proxy vocal ROTK n'a pas \u00e9t\u00e9 copi\u00e9 correctement.");
   }
 }
 
-export const vivoxClientInternals = { sha256 };
+/**
+ * Installs ROTK's open-source compatibility layer and repairs the separately
+ * provisioned official Vivox 5 runtime when either client DLL is not current.
+ */
+export async function deployVivoxCompatibility(
+  root: string,
+  bundledProxyPath: string,
+  bundledRuntimePath: string,
+): Promise<void> {
+  await deployVivoxCompatibilityWithPolicy(
+    root,
+    bundledProxyPath,
+    bundledRuntimePath,
+    DEFAULT_POLICY,
+  );
+}
+
+export const vivoxClientInternals = {
+  deployVivoxCompatibilityWithPolicy,
+  sha256,
+};

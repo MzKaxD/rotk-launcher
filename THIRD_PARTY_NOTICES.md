@@ -15,6 +15,7 @@ ROTK Launcher est distribué sous `GPL-3.0-or-later`, mais utilise des composant
 | electron-builder | MIT | <https://www.electron.build/> |
 | Vitest | MIT | <https://vitest.dev/> |
 | Zig, utilisé pour le build natif | MIT | <https://ziglang.org/> |
+| Vivox 5 client runtime | Proprietary Unity/Vivox runtime, published as a signed binary and included in official project installers | <https://unity.com/legal/licenses/unity-package-distribution-license> |
 
 Les textes de licence livrés par les paquets sont disponibles dans `node_modules` après `npm ci`. Les distributions Electron doivent conserver les fichiers de licence et notices générés, notamment ceux de Chromium.
 
@@ -37,5 +38,8 @@ Le travail de la communauté [H1emu/h1emu-launcher](https://github.com/H1emu/h1e
 ## Client et service tiers
 
 Le client H1Z1 n’est pas une dépendance redistribuée : il doit être fourni localement par l’utilisateur. Ce dépôt n’inclut ni binaire, ni asset, ni code propriétaire du jeu.
+
+This repository and official ROTK installers include the Unity-signed Vivox 5 client runtime as a binary component required by the voice-chat integration. That runtime is governed by the applicable Unity/Vivox terms and notices and is not relicensed under GPL-3.0.
+
 
 Les couvertures d’actualités sont récupérées depuis `rotk.app` et ne font pas partie du code sous GPL. Consultez [ASSET_LICENSE.md](ASSET_LICENSE.md).

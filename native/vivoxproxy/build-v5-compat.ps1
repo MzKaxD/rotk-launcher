@@ -33,6 +33,7 @@ New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
     -target x86_64-windows-gnu `
     -shared `
     -O2 `
+    -s `
     -fno-ident `
     -Wall `
     -Wextra `
