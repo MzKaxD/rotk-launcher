@@ -6,6 +6,9 @@ describe("public ROTK runtime", () => {
   it("targets the OVH gateway and every public login listener", () => {
     expect(DEFAULT_RUNTIME_CONFIG.environment).toBe("production");
     expect(DEFAULT_RUNTIME_CONFIG.gatewayOrigin).toBe("http://51.255.160.224");
+    expect(DEFAULT_RUNTIME_CONFIG.voiceGrantOrigin).toBe(
+      "https://vps-c717eb9e.vps.ovh.net",
+    );
     expect(serverList(DEFAULT_RUNTIME_CONFIG)).toBe(
       "51.255.160.224:20042;51.255.160.224:20043;51.255.160.224:20044;51.255.160.224:20045",
     );
@@ -30,10 +33,35 @@ describe("public ROTK runtime", () => {
     expect(args).toContain(
       "SteamGatewayUrl=http://127.0.0.1:49152/rest/auth/session/create",
     );
+    expect(args).toContain(
+      "VivoxGrantUrl=https://vps-c717eb9e.vps.ovh.net",
+    );
     expect(args).toContain("CommandQueue:motd_uri=http://51.255.160.224/");
     expect(args.some((argument) => (
       argument.includes("51.255.160.224/rest/auth/session/create")
     ))).toBe(false);
+    expect(args.join(" ")).not.toMatch(
+      /token.?key|private.?key|client.?secret|password/i,
+    );
+  });
+
+  it("accepts only a credential-free HTTPS origin for voice grants", () => {
+    expect(
+      gameLauncherInternals.validateVoiceGrantOrigin("https://voice.rotk.app"),
+    ).toBe("https://voice.rotk.app");
+    expect(() =>
+      gameLauncherInternals.validateVoiceGrantOrigin("http://voice.rotk.app"),
+    ).toThrow(/voice grant origin/i);
+    expect(() =>
+      gameLauncherInternals.validateVoiceGrantOrigin(
+        "https://user:password@voice.rotk.app",
+      ),
+    ).toThrow(/voice grant origin/i);
+    expect(() =>
+      gameLauncherInternals.validateVoiceGrantOrigin(
+        "https://voice.rotk.app/voice/v1/login?token=secret",
+      ),
+    ).toThrow(/voice grant origin/i);
   });
 
   it("uses only the account-service Steam identity for the shim environment", () => {

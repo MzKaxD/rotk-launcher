@@ -2,6 +2,8 @@ export interface RuntimeConfig {
   environment: "development" | "production";
   label: string;
   gatewayOrigin: string;
+  /** Public HTTPS origin used only to obtain short-lived, scoped voice grants. */
+  voiceGrantOrigin: string;
   loginHost: string;
   loginPorts: number[];
   websiteOrigin: string;
@@ -17,6 +19,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   environment: "production",
   label: "ROTK Europe",
   gatewayOrigin: "http://51.255.160.224",
+  voiceGrantOrigin: "https://vps-c717eb9e.vps.ovh.net",
   loginHost: "51.255.160.224",
   loginPorts: [20042, 20043, 20044, 20045],
   websiteOrigin: "https://rotk.app",
