@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, Copy, FolderOpen, HardDrive, ShieldCheck, X } from "lucide-react";
+import { Check, Copy, FolderOpen, HardDrive, PackageCheck, ShieldCheck, X } from "lucide-react";
 import type { LauncherSnapshot } from "../../shared/contracts";
 import { useI18n } from "../i18n";
 import { LanguagePicker } from "./WindowChrome";
@@ -13,6 +13,9 @@ interface InstallPanelProps {
   onSelectDestination(): void;
   onInstall(): void;
   onCancel(): void;
+  onVerifyAssets(): void;
+  onRestoreAssets(): void;
+  onToggleAssetSync(enabled: boolean): void;
 }
 
 function shortPath(value: string | null, emptyLabel: string): string {
@@ -35,6 +38,9 @@ export function InstallPanel({
   onSelectDestination,
   onInstall,
   onCancel,
+  onVerifyAssets,
+  onRestoreAssets,
+  onToggleAssetSync,
 }: InstallPanelProps) {
   const { copy } = useI18n();
   const hasSource = Boolean(snapshot.selection.sourceRoot);
@@ -47,6 +53,13 @@ export function InstallPanel({
   const progressFile = snapshot.progress && snapshot.progress.phase !== "copying"
     ? copy.install.progressFiles[snapshot.progress.phase]
     : snapshot.progress?.currentFile;
+  const assetSync = snapshot.assetSync;
+  const assetSyncActive = assetSync.status === "checking"
+    || assetSync.status === "downloading"
+    || assetSync.status === "installing";
+  const assetPercentage = assetSync.progress && assetSync.progress.totalBytes > 0
+    ? Math.min(100, Math.max(0, (assetSync.progress.completedBytes / assetSync.progress.totalBytes) * 100))
+    : 0;
 
   return (
     <AnimatePresence>
@@ -175,6 +188,64 @@ export function InstallPanel({
                 {usesExistingClient ? copy.install.useExisting : copy.install.createInstall}
                 <span>{usesExistingClient ? "02" : "03"}</span>
               </button>
+            )}
+
+            {snapshot.installationRoot && !installing && (
+              <section className="asset-section" aria-label={copy.assets.title}>
+                <div className="asset-section__heading">
+                  <span><PackageCheck size={16} /> {copy.assets.title}</span>
+                  <strong data-status={assetSync.status}>{copy.assets.status[assetSync.status]}</strong>
+                </div>
+                <p className="asset-section__description">{copy.assets.description}</p>
+                <small className="asset-section__version">
+                  {assetSync.packVersion
+                    ? copy.assets.packVersion(assetSync.packVersion)
+                    : copy.assets.neverSynced}
+                </small>
+                {assetSync.warning && (
+                  <small className="asset-section__warning">{copy.assets.warnings[assetSync.warning]}</small>
+                )}
+                {assetSyncActive && assetSync.progress ? (
+                  <div className="copy-progress asset-section__progress">
+                    <div className="copy-progress__heading">
+                      <span><Copy size={15} /> {copy.assets.status[assetSync.status]}</span>
+                      <strong>{Math.round(assetPercentage)}%</strong>
+                    </div>
+                    <div className="copy-progress__track"><i style={{ width: `${assetPercentage}%` }} /></div>
+                    <div className="copy-progress__file" title={assetSync.progress.assetName}>
+                      {assetSync.progress.assetName}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="asset-section__actions">
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={onVerifyAssets}
+                      disabled={busy || !assetSync.enabled}
+                    >
+                      {copy.assets.verify}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={onRestoreAssets}
+                      disabled={busy}
+                    >
+                      {copy.assets.restore}
+                    </button>
+                  </div>
+                )}
+                <label className="asset-section__toggle">
+                  <input
+                    type="checkbox"
+                    checked={assetSync.enabled}
+                    disabled={busy || assetSyncActive}
+                    onChange={(event) => onToggleAssetSync(event.target.checked)}
+                  />
+                  <span>{copy.assets.autoSync}</span>
+                </label>
+              </section>
             )}
 
             <p className="install-panel__legal">
