@@ -14,6 +14,8 @@ export interface InstalledClientConfig {
 export interface LauncherConfig {
   schemaVersion: 1;
   installation?: InstalledClientConfig;
+  /** Custom asset synchronization before launch. Defaults to enabled. */
+  assetSyncEnabled?: boolean;
 }
 
 interface StoredConfigCandidate {
@@ -43,14 +45,16 @@ function isValidConfig(value: unknown): value is LauncherConfig {
       typeof installation.criticalHashes === "object");
   return (
     candidate.schemaVersion === 1 &&
-    installationIsValid
+    installationIsValid &&
+    (candidate.assetSyncEnabled === undefined || typeof candidate.assetSyncEnabled === "boolean")
   );
 }
 
 function withoutLegacyIdentity(value: LauncherConfig): LauncherConfig {
-  return value.installation
-    ? { schemaVersion: 1, installation: value.installation }
-    : { schemaVersion: 1 };
+  const next: LauncherConfig = { schemaVersion: 1 };
+  if (value.installation) next.installation = value.installation;
+  if (value.assetSyncEnabled !== undefined) next.assetSyncEnabled = value.assetSyncEnabled;
+  return next;
 }
 
 export class ConfigStore {
@@ -138,6 +142,13 @@ export class ConfigStore {
   async setInstallation(installation: InstalledClientConfig): Promise<LauncherConfig> {
     const current = await this.load();
     const next: LauncherConfig = { ...current, installation };
+    await this.save(next);
+    return next;
+  }
+
+  async setAssetSyncEnabled(assetSyncEnabled: boolean): Promise<LauncherConfig> {
+    const current = await this.load();
+    const next: LauncherConfig = { ...current, assetSyncEnabled };
     await this.save(next);
     return next;
   }
