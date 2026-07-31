@@ -122,6 +122,18 @@ export interface Copy {
     progressPhases: Record<"scanning" | "copying" | "verifying" | "configuring" | "finalizing", string>;
     progressFiles: Record<"scanning" | "verifying" | "configuring" | "finalizing", string>;
   };
+  assets: {
+    title: string;
+    description: string;
+    updating: string;
+    status: Record<"idle" | "disabled" | "checking" | "downloading" | "installing" | "up-to-date" | "warning" | "error", string>;
+    packVersion: (version: string) => string;
+    neverSynced: string;
+    warnings: Record<"feed-unavailable" | "sync-failed", string>;
+    verify: string;
+    restore: string;
+    autoSync: string;
+  };
 }
 
 const COPY: Record<AppLocale, Copy> = {
@@ -248,6 +260,30 @@ const COPY: Record<AppLocale, Copy> = {
         finalizing: "Atomic finalization",
       },
     },
+    assets: {
+      title: "CUSTOM ASSETS",
+      description: "ROTK asset packs are downloaded from the official feed, verified with SHA-256 and updated before each launch.",
+      updating: "UPDATING ASSETS",
+      status: {
+        idle: "NOT SYNCED YET",
+        disabled: "SYNC DISABLED",
+        checking: "CHECKING",
+        downloading: "DOWNLOADING",
+        installing: "INSTALLING",
+        "up-to-date": "UP TO DATE",
+        warning: "WARNING",
+        error: "ERROR",
+      },
+      packVersion: (version) => `Asset pack ${version}`,
+      neverSynced: "No asset pack installed",
+      warnings: {
+        "feed-unavailable": "Asset feed unreachable — playing with the assets already installed.",
+        "sync-failed": "Asset update failed — playing with the assets already installed.",
+      },
+      verify: "VERIFY FILES",
+      restore: "RESTORE VANILLA CLIENT",
+      autoSync: "Update the custom assets automatically",
+    },
   },
   fr: {
     language: {
@@ -371,6 +407,30 @@ const COPY: Record<AppLocale, Copy> = {
         configuring: "Application du client ROTK",
         finalizing: "Finalisation atomique",
       },
+    },
+    assets: {
+      title: "ASSETS PERSONNALISÉS",
+      description: "Les packs d’assets ROTK sont téléchargés depuis le flux officiel, vérifiés en SHA-256 et mis à jour avant chaque lancement.",
+      updating: "MISE À JOUR DES ASSETS",
+      status: {
+        idle: "PAS ENCORE SYNCHRONISÉ",
+        disabled: "SYNC DÉSACTIVÉE",
+        checking: "VÉRIFICATION",
+        downloading: "TÉLÉCHARGEMENT",
+        installing: "INSTALLATION",
+        "up-to-date": "À JOUR",
+        warning: "AVERTISSEMENT",
+        error: "ERREUR",
+      },
+      packVersion: (version) => `Pack d’assets ${version}`,
+      neverSynced: "Aucun pack d’assets installé",
+      warnings: {
+        "feed-unavailable": "Flux d’assets injoignable — le jeu utilise les assets déjà installés.",
+        "sync-failed": "Mise à jour des assets échouée — le jeu utilise les assets déjà installés.",
+      },
+      verify: "VÉRIFIER LES FICHIERS",
+      restore: "RESTAURER LE CLIENT VANILLA",
+      autoSync: "Mettre à jour les assets personnalisés automatiquement",
     },
   },
 };
