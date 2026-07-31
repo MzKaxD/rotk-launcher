@@ -41,6 +41,38 @@ export interface InstallSelection {
 
 export type ClientSourceKind = "direct" | "copy-required";
 
+export type AssetSyncStatus =
+  | "idle"
+  | "disabled"
+  | "checking"
+  | "downloading"
+  | "installing"
+  | "up-to-date"
+  | "warning"
+  | "error";
+
+/** Localizable warning identifiers so the renderer picks the wording. */
+export type AssetSyncWarning = "feed-unavailable" | "sync-failed";
+
+export interface AssetSyncProgress {
+  phase: "checking" | "downloading" | "installing";
+  assetName: string;
+  assetsCompleted: number;
+  totalAssets: number;
+  completedBytes: number;
+  totalBytes: number;
+}
+
+export interface AssetSyncSummary {
+  enabled: boolean;
+  status: AssetSyncStatus;
+  /** Pack version of the last completed sync, if any. */
+  packVersion: string | null;
+  lastSyncAt: string | null;
+  progress: AssetSyncProgress | null;
+  warning: AssetSyncWarning | null;
+}
+
 export interface RuntimeSummary {
   environment: "development" | "production";
   label: string;
@@ -77,6 +109,7 @@ export interface LauncherSnapshot {
   runtime: RuntimeSummary;
   playerIdentity: PlayerIdentitySummary;
   launcherUpdate: LauncherUpdateSummary;
+  assetSync: AssetSyncSummary;
   progress: InstallProgress | null;
   error: string | null;
   gamePid: number | null;
@@ -105,6 +138,9 @@ export interface RotkLauncherApi {
   checkLauncherUpdate(): Promise<void>;
   downloadLauncherUpdate(): Promise<OperationResult>;
   installLauncherUpdate(): Promise<OperationResult>;
+  verifyAssets(): Promise<OperationResult>;
+  restoreVanillaAssets(): Promise<OperationResult>;
+  setAssetSyncEnabled(enabled: boolean): Promise<OperationResult>;
   minimizeWindow(): Promise<void>;
   closeWindow(): Promise<void>;
   onSnapshot(listener: (snapshot: LauncherSnapshot) => void): () => void;
@@ -125,6 +161,9 @@ export const IPC_CHANNELS = {
   checkLauncherUpdate: "launcher:update-check",
   downloadLauncherUpdate: "launcher:update-download",
   installLauncherUpdate: "launcher:update-install",
+  verifyAssets: "asset-sync:verify",
+  restoreVanillaAssets: "asset-sync:restore",
+  setAssetSyncEnabled: "asset-sync:set-enabled",
   minimizeWindow: "window:minimize",
   closeWindow: "window:close",
   snapshotChanged: "launcher:snapshot-changed",

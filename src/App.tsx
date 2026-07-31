@@ -132,6 +132,9 @@ export default function App() {
         onSelectDestination={() => void selectDestination()}
         onInstall={() => void install()}
         onCancel={() => void window.rotk.cancelInstall()}
+        onVerifyAssets={() => void perform(() => window.rotk.verifyAssets())}
+        onRestoreAssets={() => void perform(() => window.rotk.restoreVanillaAssets())}
+        onToggleAssetSync={(enabled) => void perform(() => window.rotk.setAssetSyncEnabled(enabled))}
       />
     </main>
   );
