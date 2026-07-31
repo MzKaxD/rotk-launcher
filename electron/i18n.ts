@@ -33,6 +33,10 @@ export const MAIN_COPY = {
       "not-downloaded": "The launcher update has not been downloaded yet.",
       gameRunning: "Close H1Z1 before updating the launcher.",
     },
+    assets: {
+      busy: "An asset synchronization is already in progress.",
+      disabled: "Asset synchronization is disabled in the launcher settings.",
+    },
   },
   fr: {
     unexpectedError: "Une erreur inattendue est survenue.",
@@ -65,6 +69,10 @@ export const MAIN_COPY = {
       "no-update": "Aucune mise à jour du launcher n’est disponible pour l’instant.",
       "not-downloaded": "La mise à jour du launcher n’a pas encore été téléchargée.",
       gameRunning: "Ferme H1Z1 avant de mettre à jour le launcher.",
+    },
+    assets: {
+      busy: "Une synchronisation des assets est déjà en cours.",
+      disabled: "La synchronisation des assets est désactivée dans les réglages du launcher.",
     },
   },
 } as const;
@@ -100,6 +108,9 @@ const ENGLISH_ERRORS = new Map<string, string>([
   ["Le SDK Vivox actif est inconnu; vérifie les fichiers H1Z1.", "The active Vivox SDK is unknown. Verify the H1Z1 files."],
   ["La sauvegarde du SDK Vivox historique est invalide.", "The legacy Vivox SDK backup is invalid."],
   ["Le proxy vocal ROTK n'a pas été copié correctement.", "The ROTK voice proxy was not copied correctly."],
+  ["Le flux d’assets ROTK est indisponible. Vérifie ta connexion puis réessaie.", "The ROTK asset feed is unavailable. Check your connection and try again."],
+  ["Trop de redirections pendant le téléchargement des assets.", "Too many redirects while downloading assets."],
+  ["Téléchargement d’assets refusé (redirection invalide).", "Asset download refused (invalid redirect)."],
 ]);
 
 const FRENCH_ERRORS = new Map<string, string>([
@@ -120,6 +131,12 @@ const DYNAMIC_ENGLISH_ERRORS: Array<[RegExp, (match: RegExpMatchArray) => string
   [/^La copie de (.+) ne correspond pas à la source\.$/, (match) => `The copy of ${match[1]} does not match the source.`],
   [/^Le fichier source (.+) a changé pendant la copie\.$/, (match) => `The source file ${match[1]} changed during the copy.`],
   [/^Erreur launcher ([a-f0-9]+) : (.+)$/, (match) => `Launcher error ${match[1]}: ${match[2]}`],
+  [/^Manifeste d’assets invalide : (.+)\.$/, (match) => `Invalid asset manifest: ${match[1]}.`],
+  [/^Archive d’assets invalide : (.+)\.$/, (match) => `Invalid asset archive: ${match[1]}.`],
+  [/^L’asset (.+) est corrompu \(empreinte SHA-256 inattendue\)\.$/, (match) => `The ${match[1]} asset is corrupted (unexpected SHA-256 fingerprint).`],
+  [/^L’asset (.+) dépasse la taille annoncée\.$/, (match) => `The ${match[1]} asset exceeds its declared size.`],
+  [/^Hôte de téléchargement d’assets non autorisé : (.+)\.$/, (match) => `Asset download host not allowed: ${match[1]}.`],
+  [/^Téléchargement d’assets refusé \(HTTP (\d+)\)\.$/, (match) => `Asset download refused (HTTP ${match[1]}).`],
   [/^Erreur système \(([A-Z0-9_]+)\)\.$/, (match) => `System error (${match[1]}).`],
 ];
 

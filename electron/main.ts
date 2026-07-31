@@ -16,6 +16,10 @@ import {
 } from "electron";
 import {
   IPC_CHANNELS,
+  type AssetSyncProgress,
+  type AssetSyncStatus,
+  type AssetSyncSummary,
+  type AssetSyncWarning,
   type ClientSourceKind,
   type LauncherPhase,
   type LauncherSnapshot,
@@ -39,6 +43,7 @@ import { classifyClientSource, validateInstallDestination } from "./services/pat
 import { locateSteamClient } from "./services/steam-locator.js";
 import { DEFAULT_RUNTIME_CONFIG } from "./services/runtime-config.js";
 import { UpdateFeedService } from "./services/update-feed.js";
+import { AssetSyncService } from "./services/asset-sync.js";
 import { LauncherUpdateService } from "./services/launcher-update.js";
 import electronUpdater from "electron-updater";
 import { localizeServiceError, MAIN_COPY } from "./i18n.js";
@@ -72,6 +77,7 @@ let mainWindow: BrowserWindow | null = null;
 let configStore: ConfigStore;
 let playerKeyStore: PlayerKeyStore;
 let updateFeed: UpdateFeedService;
+let assetSync: AssetSyncService;
 let launcherUpdate: LauncherUpdateService;
 const gameLauncher = new GameLauncher();
 const LAUNCHER_UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000;
@@ -89,6 +95,13 @@ let gamePid: number | null = null;
 let currentLocale: AppLocale = "en";
 let playerIdentity: PlayerIdentity | null = null;
 let quitWhenGameExits = false;
+let assetSyncEnabled = true;
+let assetSyncRunning = false;
+let assetSyncStatus: AssetSyncStatus = "idle";
+let assetSyncWarning: AssetSyncWarning | null = null;
+let assetSyncProgress: AssetSyncProgress | null = null;
+let assetSyncPackVersion: string | null = null;
+let assetSyncLastAt: string | null = null;
 
 function rawErrorMessage(error: unknown): string {
   if (error instanceof Error && error.name === "AbortError") return "Installation annulée.";
@@ -134,6 +147,58 @@ async function applyRecommendedDestination(): Promise<void> {
   }
 }
 
+function assetSyncSummary(): AssetSyncSummary {
+  return {
+    enabled: assetSyncEnabled,
+    status: assetSyncEnabled ? assetSyncStatus : "disabled",
+    packVersion: assetSyncPackVersion,
+    lastSyncAt: assetSyncLastAt,
+    progress: assetSyncProgress,
+    warning: assetSyncWarning,
+  };
+}
+
+/**
+ * Synchronize the custom asset packs with the published feed. With `soft`,
+ * a failure after at least one completed sync is downgraded to a warning so
+ * the feed never prevents the game from launching with the assets on disk.
+ */
+async function runAssetSync(mode: "sync" | "verify", soft: boolean): Promise<OperationResult> {
+  const root = await installationRoot();
+  if (!root) return { ok: false, error: MAIN_COPY[currentLocale].clientNotReady };
+  if (!assetSyncEnabled) return { ok: true };
+  if (assetSyncRunning) return { ok: false, error: MAIN_COPY[currentLocale].assets.busy };
+  assetSyncRunning = true;
+  assetSyncStatus = "checking";
+  assetSyncWarning = null;
+  assetSyncProgress = null;
+  await broadcastSnapshot();
+  try {
+    const outcome = mode === "verify" ? await assetSync.verify(root) : await assetSync.sync(root);
+    assetSyncPackVersion = outcome.packVersion;
+    assetSyncLastAt = new Date().toISOString();
+    if (outcome.status === "offline-warning") {
+      assetSyncStatus = "warning";
+      assetSyncWarning = "feed-unavailable";
+    } else {
+      assetSyncStatus = "up-to-date";
+    }
+    return { ok: true };
+  } catch (error) {
+    if (soft && (await assetSync.readState().catch(() => null))) {
+      assetSyncStatus = "warning";
+      assetSyncWarning = "sync-failed";
+      return { ok: true };
+    }
+    assetSyncStatus = "error";
+    return operationError(error);
+  } finally {
+    assetSyncRunning = false;
+    assetSyncProgress = null;
+    await broadcastSnapshot();
+  }
+}
+
 async function snapshot(): Promise<LauncherSnapshot> {
   const configuredRoot = await installationRoot();
   return {
@@ -149,6 +214,7 @@ async function snapshot(): Promise<LauncherSnapshot> {
     },
     playerIdentity: identitySummary(),
     launcherUpdate: launcherUpdate.state,
+    assetSync: assetSyncSummary(),
     progress,
     error: lastErrorRaw ? localizeServiceError(lastErrorRaw, currentLocale) : null,
     gamePid,
@@ -411,6 +477,9 @@ function registerIpc(): void {
         phase = "ready";
         progress = null;
         await broadcastSnapshot();
+        // Best-effort first asset sync: a feed problem surfaces in the asset
+        // summary without turning the completed installation into a failure.
+        await runAssetSync("sync", true);
         return { ok: true, value: { installationRoot } };
       } catch (error) {
         const cancelled = installAbortController.signal.aborted;
@@ -442,6 +511,14 @@ function registerIpc(): void {
       phase = "launching";
       lastErrorRaw = null;
       await broadcastSnapshot();
+      // The custom assets are brought up to date before every launch. Only a
+      // first sync that never completed is allowed to block the game.
+      const assetResult = await runAssetSync("sync", true);
+      if (!assetResult.ok) {
+        phase = "ready";
+        await broadcastSnapshot();
+        return { ok: false, error: assetResult.error };
+      }
       try {
         const pid = await gameLauncher.launch({
           config: await configStore.load(),
@@ -517,6 +594,61 @@ function registerIpc(): void {
     }),
   );
 
+  ipcMain.handle(
+    IPC_CHANNELS.verifyAssets,
+    trustedHandler(async (): Promise<OperationResult> => {
+      const copy = MAIN_COPY[currentLocale];
+      if (gameLauncher.isRunning() || phase === "launching" || phase === "running") {
+        return { ok: false, error: copy.clientInUse };
+      }
+      if (phase === "installing") return { ok: false, error: copy.installationInProgress };
+      if (!assetSyncEnabled) return { ok: false, error: copy.assets.disabled };
+      return runAssetSync("verify", false);
+    }),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.restoreVanillaAssets,
+    trustedHandler(async (): Promise<OperationResult> => {
+      const copy = MAIN_COPY[currentLocale];
+      if (gameLauncher.isRunning() || phase === "launching" || phase === "running") {
+        return { ok: false, error: copy.clientInUse };
+      }
+      if (phase === "installing") return { ok: false, error: copy.installationInProgress };
+      if (assetSyncRunning) return { ok: false, error: copy.assets.busy };
+      const root = await installationRoot();
+      if (!root) return { ok: false, error: copy.clientNotReady };
+      try {
+        await assetSync.restore(root);
+        assetSyncStatus = "idle";
+        assetSyncWarning = null;
+        assetSyncPackVersion = null;
+        assetSyncLastAt = null;
+        lastErrorRaw = null;
+        await broadcastSnapshot();
+        return { ok: true };
+      } catch (error) {
+        const result = operationError(error);
+        await broadcastSnapshot();
+        return result;
+      }
+    }),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.setAssetSyncEnabled,
+    trustedHandler(async (_event, enabled: unknown): Promise<OperationResult> => {
+      if (typeof enabled !== "boolean") throw new Error("Unsupported asset sync setting");
+      if (assetSyncRunning) return { ok: false, error: MAIN_COPY[currentLocale].assets.busy };
+      await configStore.setAssetSyncEnabled(enabled);
+      assetSyncEnabled = enabled;
+      assetSyncStatus = enabled ? "idle" : "disabled";
+      assetSyncWarning = null;
+      await broadcastSnapshot();
+      return { ok: true };
+    }),
+  );
+
   ipcMain.handle(IPC_CHANNELS.minimizeWindow, trustedHandler(async () => mainWindow?.minimize()));
   ipcMain.handle(IPC_CHANNELS.closeWindow, trustedHandler(async () => mainWindow?.close()));
 }
@@ -587,7 +719,21 @@ async function initialize(): Promise<void> {
   const storedPlayerKey = await playerKeyStore.load();
   playerIdentity = storedPlayerKey ? identityFromPlayerKey(storedPlayerKey) : null;
   updateFeed = new UpdateFeedService(app.getPath("userData"));
+  assetSync = new AssetSyncService({
+    userDataDirectory: app.getPath("userData"),
+    onProgress: (value) => {
+      assetSyncStatus = value.phase === "checking"
+        ? "checking"
+        : value.phase === "downloading" ? "downloading" : "installing";
+      assetSyncProgress = value;
+      void broadcastSnapshot();
+    },
+  });
   const config = await configStore.load();
+  assetSyncEnabled = config.assetSyncEnabled ?? true;
+  const assetState = await assetSync.readState().catch(() => null);
+  assetSyncPackVersion = assetState?.packVersion ?? null;
+  assetSyncLastAt = assetState?.syncedAt ?? null;
   if (config.installation) {
     try {
       await validateInstalledClient(config.installation);
