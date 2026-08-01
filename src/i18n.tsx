@@ -122,6 +122,9 @@ export interface Copy {
     progressPhases: Record<"scanning" | "copying" | "verifying" | "configuring" | "finalizing", string>;
     progressFiles: Record<"scanning" | "verifying" | "configuring" | "finalizing", string>;
   };
+  integrity: {
+    verifying: string;
+  };
   assets: {
     title: string;
     description: string;
@@ -259,6 +262,9 @@ const COPY: Record<AppLocale, Copy> = {
         configuring: "Applying ROTK client configuration",
         finalizing: "Atomic finalization",
       },
+    },
+    integrity: {
+      verifying: "VERIFYING GAME FILES",
     },
     assets: {
       title: "CUSTOM ASSETS",
@@ -407,6 +413,9 @@ const COPY: Record<AppLocale, Copy> = {
         configuring: "Application du client ROTK",
         finalizing: "Finalisation atomique",
       },
+    },
+    integrity: {
+      verifying: "VÉRIFICATION DES FICHIERS DU JEU",
     },
     assets: {
       title: "ASSETS PERSONNALISÉS",

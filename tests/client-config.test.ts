@@ -14,6 +14,7 @@ const runtime: RuntimeConfig = {
   loginPorts: [20042, 20043],
   websiteOrigin: "https://rotk.app",
   launchTicketUrl: "https://accounts.rotk.app/createLaunchTicket",
+  attestationChallengeUrl: "https://accounts.rotk.app/beginLauncherAttestation",
 };
 const authKey = "0123456789abcdef0123456789abcdef";
 const localCreateSessionUrl = "http://127.0.0.1:49152/rest/auth/session/create";

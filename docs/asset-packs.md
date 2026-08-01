@@ -94,19 +94,26 @@ The launcher refuses the whole pack if any rule fails — nothing is written hal
 - Zips: plain store/deflate central-directory archives only (no zip64, no encryption),
   ≤ 20 000 entries, per-entry and total uncompressed sizes are bounded and enforced
   during inflation (zip-bomb guard).
-- Sizes: ≤ 512 MB per asset, ≤ 2 GB total.
+- Sizes: ≤ 3 GB per asset (also bounds a single extracted zip entry — the main
+  game pack is 2.47 GB uncompressed), ≤ 8 GB total. GitHub caps each release
+  asset at 2 GiB, which is why big packs ship compressed, one zip per pack.
 
 ## 5. Publishing checklist
 
-1. Build the payloads (`.zip` for trees, plain files otherwise). Avoid blocked
-   extensions and protected paths (section 4).
-2. Compute for each payload: `sha256` (`Get-FileHash -Algorithm SHA256 <file>`) and
-   size in bytes.
-3. Create the GitHub release `assets-vX.Y.Z` on `h1z1rotk/assets` and attach the payloads.
-4. Update `feed.json` on `main`: new URLs, `sha256`, `size`, bumped `version` for the
-   changed assets and a bumped `packVersion`.
-5. Done — launchers pick the update up at the next launch. To roll back, point
+1. Run `scripts/package-asset-packs.ps1 -SourceDirectory <packs dir>
+   -OutputDirectory <out> -PackVersion X.Y.Z`. It zips **each file into its own
+   payload** (so launcher updates only re-download what changed), enforces the
+   section 4 caps and blocked extensions, computes `sha256`/`size` and writes
+   the ready-to-commit `feed.json`.
+2. Create the GitHub release `assets-vX.Y.Z` on `h1z1rotk/assets` and attach the
+   generated zips.
+3. Commit the generated `feed.json` to `main`.
+4. Done — launchers pick the update up at the next launch. To roll back, point
    `feed.json` back to the previous release assets.
+
+Manual fallback: build payloads yourself (avoid blocked extensions and
+protected paths), `Get-FileHash -Algorithm SHA256`, then edit `feed.json` by
+hand (bump `version` per changed asset and `packVersion`).
 
 ## 6. Launcher UX
 

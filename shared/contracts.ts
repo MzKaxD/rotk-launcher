@@ -100,6 +100,17 @@ export interface LauncherUpdateSummary {
   error: string | null;
 }
 
+/**
+ * Progress of the pre-launch integrity check. Null when idle; hashing the whole
+ * installation takes minutes on a first run and seconds afterwards (cached).
+ */
+export interface IntegrityCheckSummary {
+  hashedFiles: number;
+  totalFiles: number;
+  hashedBytes: number;
+  totalBytes: number;
+}
+
 export interface LauncherSnapshot {
   appVersion: string;
   phase: LauncherPhase;
@@ -110,6 +121,7 @@ export interface LauncherSnapshot {
   playerIdentity: PlayerIdentitySummary;
   launcherUpdate: LauncherUpdateSummary;
   assetSync: AssetSyncSummary;
+  integrityCheck: IntegrityCheckSummary | null;
   progress: InstallProgress | null;
   error: string | null;
   gamePid: number | null;

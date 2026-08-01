@@ -44,8 +44,13 @@ const ASSET_REDIRECT_HOSTS = new Set([
 
 const MAX_FEED_BYTES = 1_000_000;
 const MAX_ASSETS = 64;
-const MAX_ASSET_BYTES = 512 * 1024 * 1024;
-const MAX_TOTAL_ASSET_BYTES = 2 * 1024 * 1024 * 1024;
+/**
+ * Also bounds a single extracted zip entry: the main game pack
+ * (assets_x64_0.pack2) is 2.47 GB uncompressed. Entries must stay below
+ * 4 GiB regardless — the zip reader rejects Zip64 archives.
+ */
+const MAX_ASSET_BYTES = 3 * 1024 * 1024 * 1024;
+const MAX_TOTAL_ASSET_BYTES = 8 * 1024 * 1024 * 1024;
 const MAX_ZIP_ENTRIES = 20_000;
 const MAX_REDIRECTS = 5;
 const MANIFEST_TIMEOUT_MS = 10_000;
@@ -124,6 +129,14 @@ function manifestError(reason: string): Error {
 
 function isHex64(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+}
+
+/**
+ * JSON.parse rejects a leading BOM, and Windows tooling emits one by default.
+ * A feed published with a BOM would otherwise stop every launcher.
+ */
+export function stripByteOrderMark(value: string): string {
+  return value.charCodeAt(0) === 0xfeff ? value.slice(1) : value;
 }
 
 function hasBlockedExtension(fileName: string): boolean {
@@ -484,7 +497,7 @@ export class AssetSyncService {
       const response = await this.fetchFollowingRedirects(this.feedUrl, controller.signal);
       const body = await response.text();
       if (Buffer.byteLength(body, "utf8") > MAX_FEED_BYTES) throw new Error("Feed too large");
-      return parseAssetManifest(JSON.parse(body));
+      return parseAssetManifest(JSON.parse(stripByteOrderMark(body)));
     } finally {
       clearTimeout(timeout);
       signal?.removeEventListener("abort", abortUpstream);
