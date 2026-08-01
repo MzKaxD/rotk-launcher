@@ -125,6 +125,64 @@ describe("signature verification", () => {
   });
 });
 
+/**
+ * Canonical attestation contract, duplicated verbatim in the backend suite
+ * (rotk-web/functions/attestationWiring.test.js). The two repositories are
+ * checked out separately in CI, so each side asserts the same literals: a
+ * divergence makes launcher and server disagree on what an unmodified
+ * installation hashes to, which rejects every honest player.
+ */
+const CANONICAL = {
+  excludedPaths: [
+    ".rotk-installation.json",
+    "battleye/beclient_x64.cfg",
+    "battleye/beclient_x64.cfg.original",
+    "clientconfig.ini",
+    "clientconfig.original.ini",
+    "inputprofile_user.xml",
+    "steam_api64.original.dll",
+    "steam_persona_name.txt",
+    "useroptions.ini",
+  ],
+  excludedPrefixes: ["battleye/", "cache/", "crashes/", "logs/"],
+  excludedSuffixes: [".dmp", ".log", ".original"],
+};
+
+function extractStringSet(source: string, marker: string): string[] {
+  const start = source.indexOf(marker);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const terminator = source.slice(start).search(/\]\)?;/);
+  expect(terminator).toBeGreaterThan(0);
+  return [...new Set(
+    [...source.slice(start, start + terminator).matchAll(/"([^"]+)"/g)].map((match) => match[1]),
+  )].sort();
+}
+
+describe("canonical exclusion contract", () => {
+  it("is identical in the shared module and the base manifest generator", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const { fileURLToPath } = await import("node:url");
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const moduleSource = await readFile(`${root}shared/attestation.ts`, "utf8");
+    const generatorSource = await readFile(`${root}scripts/generate-base-manifest.mjs`, "utf8");
+
+    for (const [source, prefix] of [[moduleSource, "ATTESTATION_"], [generatorSource, "const "]] as const) {
+      expect(extractStringSet(source, `${prefix}EXCLUDED_PATHS`)).toEqual(CANONICAL.excludedPaths);
+      expect(extractStringSet(source, `${prefix}EXCLUDED_PREFIXES`)).toEqual(CANONICAL.excludedPrefixes);
+      expect(extractStringSet(source, `${prefix}EXCLUDED_SUFFIXES`)).toEqual(CANONICAL.excludedSuffixes);
+    }
+  });
+
+  it("never excludes gameplay content or the shim", () => {
+    for (const path of CANONICAL.excludedPaths) {
+      expect(path).not.toMatch(/\.pack2$/);
+      expect(path).not.toMatch(/\.exe$/);
+      if (path.endsWith(".dll")) expect(path).toMatch(/\.original\.dll$/);
+    }
+    expect(CANONICAL.excludedPaths).not.toContain("steam_api64.dll");
+  });
+});
+
 describe("format guards", () => {
   it("validates digests and paths", () => {
     expect(isSha256Hex("a".repeat(64))).toBe(true);
