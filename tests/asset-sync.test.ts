@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   AssetSyncService,
   parseAssetManifest,
+  stripByteOrderMark,
   type AssetManifest,
   type AssetManifestEntry,
 } from "../electron/services/asset-sync.js";
@@ -118,6 +119,11 @@ describe("ROTK asset sync", () => {
       expect(() => parseAssetManifest(duplicated)).toThrow("asset en double");
       expect(() => parseAssetManifest(withEntry({ sha256: "beef" }))).toThrow("sha256 invalide");
       expect(() => parseAssetManifest(withEntry({ size: 0 }))).toThrow("taille invalide");
+      // A BOM-prefixed feed must still parse: Windows tooling emits one and it
+      // would otherwise stop every launcher.
+      expect(stripByteOrderMark("﻿{\"a\":1}")).toBe("{\"a\":1}");
+      expect(stripByteOrderMark("{\"a\":1}")).toBe("{\"a\":1}");
+      expect(JSON.parse(stripByteOrderMark("﻿{\"ok\":true}"))).toEqual({ ok: true });
       expect(() => parseAssetManifest(withEntry({ size: 4 * 1024 ** 4 }))).toThrow("taille invalide");
     });
   });

@@ -26,6 +26,11 @@ export interface LaunchTicketIdentity {
 interface TicketRequestOptions {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /**
+   * Integrity attestation block (see integrity-attestation.ts). Optional while
+   * the backend runs in observation mode; required once enforcement is on.
+   */
+  attestation?: unknown;
 }
 
 function validateEndpoint(value: string): URL {
@@ -140,9 +145,25 @@ function parseTicketResponse(
   return identity;
 }
 function serviceError(status: number, value: unknown): Error {
-  const errorCode = value && typeof value === "object"
-    ? (value as Record<string, unknown>).error
-    : null;
+  const payload = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+  const errorCode = payload?.error ?? null;
+  if (errorCode === "attestation_failed") {
+    return new Error(
+      "The game files do not match the official ROTK installation. Use Verify files, then try again.",
+    );
+  }
+  if (errorCode === "launcher_update_required") {
+    return new Error("This launcher version is too old to verify the game files. Update the launcher.");
+  }
+  if (errorCode === "account_banned") {
+    const expiresAt = typeof payload?.expiresAt === "string" ? payload.expiresAt : null;
+    const reason = typeof payload?.reason === "string" && payload.reason ? ` Reason: ${payload.reason}` : "";
+    return new Error(
+      expiresAt
+        ? `This ROTK account is suspended until ${new Date(expiresAt).toLocaleString()}.${reason}`
+        : `This ROTK account is permanently banned.${reason}`,
+    );
+  }
   if (status === 401 || errorCode === "invalid_credentials") {
     return new Error("The ROTK launcher key was rejected");
   }
@@ -176,7 +197,10 @@ export async function createLaunchTicket(
           Accept: "application/json",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ launcherKey: normalizePlayerKey(playerKey) }),
+        body: JSON.stringify({
+          launcherKey: normalizePlayerKey(playerKey),
+          ...(options.attestation ? { attestation: options.attestation } : {}),
+        }),
         cache: "no-store",
         redirect: "error",
         signal: controller.signal,

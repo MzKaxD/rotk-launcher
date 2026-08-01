@@ -52,6 +52,19 @@ import {
   type PlayerIdentity,
 } from "./services/player-identity.js";
 import { PlayerKeyStore } from "./services/player-key-store.js";
+import { readInstallationMarker } from "./services/installer.js";
+import {
+  BASE_MANIFEST_URL,
+  loadBaseManifest,
+  mergeExpectedFiles,
+  readLauncherOverrides,
+} from "./services/base-manifest.js";
+import {
+  buildAttestationResult,
+  measureInstallation,
+  requestAttestationChallenge,
+  type AttestationProgress,
+} from "./services/integrity-attestation.js";
 
 app.setName(APP_NAME);
 if (!app.isPackaged && process.env.ROTK_USER_DATA_DIR) {
@@ -100,6 +113,7 @@ let assetSyncRunning = false;
 let assetSyncStatus: AssetSyncStatus = "idle";
 let assetSyncWarning: AssetSyncWarning | null = null;
 let assetSyncProgress: AssetSyncProgress | null = null;
+let attestationProgress: AttestationProgress | null = null;
 let assetSyncPackVersion: string | null = null;
 let assetSyncLastAt: string | null = null;
 
@@ -199,6 +213,78 @@ async function runAssetSync(mode: "sync" | "verify", soft: boolean): Promise<Ope
   }
 }
 
+/**
+ * Runs one integrity attestation pass and returns the block the launch ticket
+ * request carries. Returns null only when attestation genuinely cannot run
+ * (no policy published, manifest unreachable and never cached) — it is the
+ * backend, not the launcher, that decides whether a null is acceptable.
+ *
+ * A tampered installation still attests: the deviations are reported and the
+ * evidence will not match, so the rejection is logged for the admin studio
+ * instead of being silently hidden by the client.
+ */
+async function attestInstallation(playerKey: string): Promise<unknown | null> {
+  const root = await installationRoot();
+  if (!root) return null;
+  const userDataDirectory = app.getPath("userData");
+  const launcherVersion = app.getVersion();
+  try {
+    const marker = await readInstallationMarker(root);
+    if (!marker) return null;
+
+    const challenge = await requestAttestationChallenge(
+      playerKey,
+      DEFAULT_RUNTIME_CONFIG.attestationChallengeUrl,
+      launcherVersion,
+    );
+    const baseManifest = await loadBaseManifest({
+      url: BASE_MANIFEST_URL,
+      userDataDirectory,
+      expectedBuildId: challenge.baseBuildId,
+    });
+    const assetState = await assetSync.readState().catch(() => null);
+    const installedAssets = (assetState?.assets ?? []).flatMap((asset) =>
+      asset.installedFiles.map((file) => ({
+        path: file.path,
+        size: file.size,
+        sha256: file.sha256,
+      })));
+    // The shim replaces steam_api64.dll: expect the launcher's artifact, not
+    // the vanilla hash, so the file stays attested instead of excluded.
+    const overrides = await readLauncherOverrides([
+      { installPath: "steam_api64.dll", bundledPath: resolveBundledShimPath() },
+    ]);
+
+    const measurement = await measureInstallation({
+      installationRoot: root,
+      userDataDirectory,
+      expected: mergeExpectedFiles(baseManifest.files, installedAssets, overrides),
+      // Report undeclared .pack2/.dll/.exe dropped into the game tree. Costs
+      // one directory walk; the per-file hashing dominates anyway.
+      detectUnexpected: true,
+      onProgress: (progress) => {
+        attestationProgress = progress.phase === "done" ? null : progress;
+        void broadcastSnapshot();
+      },
+    });
+    attestationProgress = null;
+    if (measurement.deviations.length > 0) {
+      console.warn(
+        `Integrity attestation found ${measurement.deviations.length} deviation(s); reporting them.`,
+      );
+    }
+    return buildAttestationResult(challenge, measurement, launcherVersion);
+  } catch (error) {
+    attestationProgress = null;
+    // A challenge or manifest we cannot obtain is reported as "no attestation";
+    // the backend applies its enforcement policy to that.
+    console.warn("Integrity attestation could not complete", {
+      message: error instanceof Error ? error.message : "unknown",
+    });
+    return null;
+  }
+}
+
 async function snapshot(): Promise<LauncherSnapshot> {
   const configuredRoot = await installationRoot();
   return {
@@ -215,6 +301,14 @@ async function snapshot(): Promise<LauncherSnapshot> {
     playerIdentity: identitySummary(),
     launcherUpdate: launcherUpdate.state,
     assetSync: assetSyncSummary(),
+    integrityCheck: attestationProgress
+      ? {
+        hashedFiles: attestationProgress.hashedFiles,
+        totalFiles: attestationProgress.totalFiles,
+        hashedBytes: attestationProgress.hashedBytes,
+        totalBytes: attestationProgress.totalBytes,
+      }
+      : null,
     progress,
     error: lastErrorRaw ? localizeServiceError(lastErrorRaw, currentLocale) : null,
     gamePid,
@@ -528,6 +622,7 @@ function registerIpc(): void {
           bundledShimPath: resolveBundledShimPath(),
           bundledVivoxProxyPath: resolveBundledVivoxProxyPath(),
           bundledVivoxRuntimePath: resolveBundledVivoxRuntimePath(),
+          attest: () => attestInstallation(launchCredential.playerKey),
           onExit: () => {
             gamePid = null;
             phase = "ready";
