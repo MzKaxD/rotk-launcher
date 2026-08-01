@@ -25,6 +25,13 @@ export interface LaunchRequest {
   bundledShimPath: string;
   bundledVivoxProxyPath: string;
   bundledVivoxRuntimePath: string;
+  /**
+   * Integrity attestation hook. Resolves to the block the ticket request
+   * carries, or null when attestation cannot run (no policy published yet, or
+   * the launcher is configured without it). The backend decides what an absent
+   * attestation means — the launcher never self-exempts.
+   */
+  attest?: () => Promise<unknown | null>;
   onExit(exitCode: number | null): void;
 }
 
@@ -174,11 +181,16 @@ export class GameLauncher {
     await mkdir(localLogs, { recursive: true });
     await mkdir(failureLogs, { recursive: true });
 
+    // Integrity attestation runs before the ticket exists: the whole point is
+    // that a tampered installation never obtains one.
+    const attestation = request.attest ? await request.attest() : null;
+
     // The durable website key reaches only the HTTPS account service. H1Z1
     // receives a short ticket and the Steam identity authenticated by it.
     let launchIdentity = await createLaunchTicket(
       request.identity.playerKey,
       request.runtime.launchTicketUrl,
+      { attestation },
     );
     let sessionGateway = await startLocalSessionGateway(launchIdentity.ticket);
 
@@ -197,9 +209,13 @@ export class GameLauncher {
         assertLaunchTicketFresh(launchIdentity);
       } catch {
         await sessionGateway.close().catch(() => undefined);
+        // A fresh ticket needs a fresh attestation: the first challenge was
+        // consumed by the request above and is not replayable.
+        const refreshedAttestation = request.attest ? await request.attest() : null;
         launchIdentity = await createLaunchTicket(
           request.identity.playerKey,
           request.runtime.launchTicketUrl,
+          { attestation: refreshedAttestation },
         );
         sessionGateway = await startLocalSessionGateway(launchIdentity.ticket);
         await prepareClient(

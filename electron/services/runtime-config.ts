@@ -8,6 +8,8 @@ export interface RuntimeConfig {
   loginPorts: number[];
   websiteOrigin: string;
   launchTicketUrl: string;
+  /** Phase A of integrity attestation: issues the signed single-use challenge. */
+  attestationChallengeUrl: string;
 }
 
 /**
@@ -24,6 +26,8 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   loginPorts: [20042, 20043, 20044, 20045],
   websiteOrigin: "https://rotk.app",
   launchTicketUrl: "https://europe-west1-rotk-project.cloudfunctions.net/createLaunchTicket",
+  attestationChallengeUrl:
+    "https://europe-west1-rotk-project.cloudfunctions.net/beginLauncherAttestation",
 };
 
 export function serverList(runtime: RuntimeConfig): string {

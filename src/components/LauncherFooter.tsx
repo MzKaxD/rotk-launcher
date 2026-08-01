@@ -23,6 +23,11 @@ function statusCopy(snapshot: LauncherSnapshot, copy: Copy): { label: string; de
       const percent = Math.min(100, Math.round((assetProgress.completedBytes / assetProgress.totalBytes) * 100));
       return { label: copy.footer.launching, detail: `${copy.assets.updating} — ${percent}%` };
     }
+    const integrity = snapshot.integrityCheck;
+    if (integrity && integrity.totalFiles > 0) {
+      const percent = Math.min(100, Math.round((integrity.hashedFiles / integrity.totalFiles) * 100));
+      return { label: copy.footer.launching, detail: `${copy.integrity.verifying} — ${percent}%` };
+    }
     return { label: copy.footer.launching, detail: copy.footer.preparingClient };
   }
   if (snapshot.phase === "installing") return { label: copy.footer.installing, detail: copy.footer.secureCopy };
