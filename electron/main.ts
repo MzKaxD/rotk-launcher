@@ -605,9 +605,9 @@ function registerIpc(): void {
       phase = "launching";
       lastErrorRaw = null;
       await broadcastSnapshot();
-      // The custom assets are brought up to date before every launch. Only a
-      // first sync that never completed is allowed to block the game.
-      const assetResult = await runAssetSync("sync", true);
+      // A discovered update must be fully downloaded and installed before
+      // starting the game; launching with a partially updated asset set is unsafe.
+      const assetResult = await runAssetSync("sync", false);
       if (!assetResult.ok) {
         phase = "ready";
         await broadcastSnapshot();

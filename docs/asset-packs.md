@@ -12,20 +12,23 @@ requiring a launcher release. The pipeline is implemented by
 1. Fetch `feed.json` from
    `https://raw.githubusercontent.com/h1z1rotk/assets/main/feed.json`
    (HTTPS only, 10 s timeout, 1 MB cap).
-2. Diff against the local state (`asset-state.v1.json` in the launcher `userData`):
+2. Fetch the latest stable GitHub release metadata. Every conventional `foo.zip`
+   release asset is merged over the feed as `Resources/Assets/foo.pack2`, using the
+   size and SHA-256 digest returned by GitHub.
+3. Diff the merged catalog against the local state (`asset-state.v1.json` in the launcher `userData`):
    an asset is (re)installed when it is new, its `version`/`sha256` changed, or one of
    its installed files is missing (the **Verify files** action additionally re-hashes
    every installed file).
-3. Download into `userData/asset-cache/` (a cached pack with the right SHA-256 is
+4. Download into `userData/asset-cache/` (a cached pack with the right SHA-256 is
    reused without any network call), verify the streamed SHA-256 against the manifest,
    then install atomically (staging file + `rename`) into the ROTK installation.
-4. Client files overwritten for the first time are backed up under
+5. Client files overwritten for the first time are backed up under
    `userData/asset-backups/` — **Restore vanilla client** puts them back and deletes
-   everything the feed added.
-5. Assets removed from the manifest are uninstalled on the next sync (backup restored
+   everything the merged catalog added.
+6. Assets removed from the merged catalog are uninstalled on the next sync (backup restored
    or file deleted).
 
-A feed that cannot be fetched **never blocks the game** once a first sync completed:
+Metadata that cannot be fetched **never blocks the game** once a first sync completed:
 the launcher shows a warning and starts with the assets already on disk. Only a first
 sync that never completed is blocking (players can also disable the sync entirely in
 the setup panel — offline/dev mode).
@@ -35,8 +38,9 @@ the setup panel — offline/dev mode).
 - `feed.json` at the root of `main` — the always-current manifest.
 - Binaries attached as **GitHub Release assets** (never committed): stable URLs, no
   git size limits.
-- Publishing an update = upload a release (`assets-vX.Y.Z`) + one commit updating
-  `feed.json` (URLs + SHA-256 + sizes + bumped `packVersion`).
+- Every conventional `foo.zip` uploaded to the latest stable release is discovered
+  automatically as `Resources/Assets/foo.pack2`; no `feed.json` edit is required.
+- `feed.json` remains available for non-pack payloads and explicit legacy entries.
 
 ## 3. Manifest format
 
@@ -102,14 +106,15 @@ The launcher refuses the whole pack if any rule fails — nothing is written hal
 
 1. Run `scripts/package-asset-packs.ps1 -SourceDirectory <packs dir>
    -OutputDirectory <out> -PackVersion X.Y.Z`. It zips **each file into its own
-   payload** (so launcher updates only re-download what changed), enforces the
-   section 4 caps and blocked extensions, computes `sha256`/`size` and writes
-   the ready-to-commit `feed.json`.
-2. Create the GitHub release `assets-vX.Y.Z` on `h1z1rotk/assets` and attach the
-   generated zips.
-3. Commit the generated `feed.json` to `main`.
-4. Done — launchers pick the update up at the next launch. To roll back, point
-   `feed.json` back to the previous release assets.
+   payload**, enforces the section 4 caps, and writes both `feed.json` and the
+   attestation payload manifest.
+2. Create the stable GitHub release `assets-vX.Y.Z` on `h1z1rotk/assets` and attach
+   the generated zips.
+3. Done for conventional pack ZIPs: launchers discover them from the latest release.
+4. Commit `feed.json` only for non-pack payloads or explicit legacy entries.
+5. Publish the generated attestation payload manifest with the server policy.
+6. At the next launch or **Verify files**, missing or changed packs are downloaded.
+   To roll back, remove/replace the release asset or publish a newer stable release.
 
 Manual fallback: build payloads yourself (avoid blocked extensions and
 protected paths), `Get-FileHash -Algorithm SHA256`, then edit `feed.json` by
