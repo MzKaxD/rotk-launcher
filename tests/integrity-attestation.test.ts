@@ -341,6 +341,7 @@ describe("expected-file merge", () => {
       ".rotk-installation.json",
       "ClientConfig.original.ini",
       "steam_api64.original.dll",
+      "vivoxsdk_x64.original.dll",
       "BattlEye/BEClient_x64.cfg",
       "Logs/ClientItemsInfo.log",
       "logs/anything.txt",
@@ -356,6 +357,7 @@ describe("expected-file merge", () => {
       "Resources/Assets/assets_x64_0.pack2",
       "Resources/Assets/ui_x64_4.pack2",
       "vivoxsdk_x64.dll",
+      "vivoxsdk_x64_v5.dll",
     ]) {
       expect(isAttestationExcluded(path)).toBe(false);
     }
@@ -367,9 +369,10 @@ describe("expected-file merge", () => {
   });
 
   it("expects the launcher artifact for a file it replaces, not the vanilla one", async () => {
-    // steam_api64.dll is swapped for the ROTK shim. Measured on a real pair of
-    // trees: after exclusions it is the ONLY content difference between a
-    // vanilla and a ROTK install, so it must be attested as an override.
+    // steam_api64.dll is swapped for the ROTK shim and vivoxsdk_x64.dll for
+    // the ROTK voice proxy: after exclusions those (plus the added Vivox 5
+    // runtime below) are the only content differences between a vanilla and a
+    // ROTK install, so they must be attested as overrides.
     const shim = "d".repeat(64);
     const base = [
       { path: "steam_api64.dll", size: 235_600, sha256: "a".repeat(64) },
@@ -378,6 +381,17 @@ describe("expected-file merge", () => {
     const merged = mergeExpectedFiles(base, [], [{ path: "steam_api64.dll", size: 221_696, sha256: shim }]);
 
     expect(merged.find((entry) => entry.path === "steam_api64.dll")?.sha256).toBe(shim);
+    expect(merged).toHaveLength(2);
+  });
+
+  it("accepts an override for a file the launcher adds without a vanilla counterpart", async () => {
+    // vivoxsdk_x64_v5.dll only exists on a ROTK install: the override both
+    // declares it (so it is not reported as unexpected) and pins its hash.
+    const runtime = "e".repeat(64);
+    const base = [{ path: "H1Z1.exe", size: 1, sha256: "b".repeat(64) }];
+    const merged = mergeExpectedFiles(base, [], [{ path: "vivoxsdk_x64_v5.dll", size: 5_248_968, sha256: runtime }]);
+
+    expect(merged.find((entry) => entry.path === "vivoxsdk_x64_v5.dll")?.sha256).toBe(runtime);
     expect(merged).toHaveLength(2);
   });
 

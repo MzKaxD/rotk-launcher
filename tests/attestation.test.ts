@@ -143,6 +143,7 @@ const CANONICAL = {
     "steam_api64.original.dll",
     "steam_persona_name.txt",
     "useroptions.ini",
+    "vivoxsdk_x64.original.dll",
   ],
   excludedPrefixes: ["battleye/", "cache/", "crashes/", "logs/"],
   excludedSuffixes: [".dmp", ".log", ".original"],

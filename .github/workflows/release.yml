@@ -104,6 +104,15 @@ jobs:
           if ($proxyHash -ne "F67EC183AC66DFC8239094582F3479E41A4E5C6FB1AD2F7DF4D03A9196117629") {
             throw "Unexpected Vivox proxy SHA-256: $proxyHash"
           }
+          # Les sidecars alimentent les overrides d'attestation embarqués :
+          # une divergence signalerait chaque joueur honnête en écart.
+          foreach ($patch in @("vivoxsdk_x64.dll", "vivoxsdk_x64_v5.dll")) {
+            $dllHash = (Get-FileHash -LiteralPath "resources\patches\$patch" -Algorithm SHA256).Hash.ToLowerInvariant()
+            $sidecar = ((Get-Content -LiteralPath "resources\patches\$patch.sha256" -Raw) -split "\s+")[0]
+            if ($sidecar -ne $dllHash) {
+              throw "Le sidecar $patch.sha256 ne correspond pas au DLL : $sidecar != $dllHash"
+            }
+          }
           npm run build
 
       - name: Package NSIS installer

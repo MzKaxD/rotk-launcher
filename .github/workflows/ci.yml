@@ -75,6 +75,12 @@ jobs:
           if ($vivoxHash -ne "33A7F704EDA23DDA9CCBD9EBA1FDA2F0589211E9C61EC9D1F9C797ACC624EA44") {
             throw "Unexpected Vivox 5 runtime SHA-256: $vivoxHash"
           }
+          # Le sidecar alimente l'override d'attestation : s'il diverge du DLL,
+          # chaque joueur honnête serait signalé en écart sur ce fichier.
+          $vivoxSidecar = ((Get-Content -LiteralPath "$allowedVivoxDll.sha256" -Raw) -split "\s+")[0]
+          if ($vivoxSidecar -ne $vivoxHash.ToLowerInvariant()) {
+            throw "Le sidecar vivoxsdk_x64_v5.dll.sha256 ne correspond pas au DLL : $vivoxSidecar"
+          }
           $vivoxSignature = Get-AuthenticodeSignature -LiteralPath $allowedVivoxDll
           if ($vivoxSignature.Status -ne "Valid" -or -not $vivoxSignature.SignerCertificate) {
             throw "The Vivox 5 runtime has an invalid Authenticode signature."
@@ -169,6 +175,12 @@ jobs:
           Write-Host "Proxy Vivox compilé depuis les sources publiques : $hash"
           if ($hash -ne "F67EC183AC66DFC8239094582F3479E41A4E5C6FB1AD2F7DF4D03A9196117629") {
             throw "Unexpected Vivox proxy SHA-256: $hash"
+          }
+          # Le sidecar alimente l'override d'attestation : s'il diverge du DLL,
+          # chaque joueur honnête serait signalé en écart sur ce fichier.
+          $sidecar = ((Get-Content -LiteralPath "$bundled.sha256" -Raw) -split "\s+")[0]
+          if ($sidecar -ne $hash.ToLowerInvariant()) {
+            throw "Le sidecar vivoxsdk_x64.dll.sha256 ne correspond pas au DLL : $sidecar"
           }
 
       - name: Typer, tester et construire le launcher
