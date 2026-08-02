@@ -249,10 +249,14 @@ async function attestInstallation(playerKey: string): Promise<unknown | null> {
         size: file.size,
         sha256: file.sha256,
       })));
-    // The shim replaces steam_api64.dll: expect the launcher's artifact, not
-    // the vanilla hash, so the file stays attested instead of excluded.
+    // Files the launcher deliberately replaces or adds: expect its artifacts,
+    // not the vanilla hashes, so they stay attested instead of excluded. Keep
+    // in sync with ATTESTATION_OVERRIDE_PATHS and the policy publisher's
+    // --override flags — a missing entry here flags every honest install.
     const overrides = await readLauncherOverrides([
       { installPath: "steam_api64.dll", bundledPath: resolveBundledShimPath() },
+      { installPath: "vivoxsdk_x64.dll", bundledPath: resolveBundledVivoxProxyPath() },
+      { installPath: "vivoxsdk_x64_v5.dll", bundledPath: resolveBundledVivoxRuntimePath() },
     ]);
 
     const measurement = await measureInstallation({
@@ -605,9 +609,9 @@ function registerIpc(): void {
       phase = "launching";
       lastErrorRaw = null;
       await broadcastSnapshot();
-      // The custom assets are brought up to date before every launch. Only a
-      // first sync that never completed is allowed to block the game.
-      const assetResult = await runAssetSync("sync", true);
+      // A discovered update must be fully downloaded and installed before
+      // starting the game; launching with a partially updated asset set is unsafe.
+      const assetResult = await runAssetSync("sync", false);
       if (!assetResult.ok) {
         phase = "ready";
         await broadcastSnapshot();
