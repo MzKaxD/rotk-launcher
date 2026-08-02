@@ -60,10 +60,12 @@ export const TRUSTED_ATTESTATION_KEYS: Readonly<Record<string, string>> = Object
  *      settings, keybinds), or is rewritten on every launch by the launcher; AND
  *   2. it cannot carry gameplay content or executable code.
  *
- * No `.pack2`, no `.dll`, no `.exe` may ever be added here: those are exactly
- * what attestation exists to protect. `steam_api64.dll` is NOT excluded — the
- * launcher replaces it with its own shim, so it is verified against the shim
- * hash instead (see ATTESTATION_OVERRIDE_PATHS).
+ * No `.pack2`, no `.exe`, and no `.dll` the game can load may ever be added
+ * here (a `.original.dll` vanilla backup is the sole tolerated .dll shape):
+ * those are exactly what attestation exists to protect. `steam_api64.dll` and
+ * `vivoxsdk_x64.dll` are NOT excluded — the launcher replaces them with its
+ * own artifacts, so they are verified against those hashes instead (see
+ * ATTESTATION_OVERRIDE_PATHS).
  *
  * Verified against a real installation (2026-08-01): the game rewrites
  * `UserOptions.ini` (graphics/audio/sensitivity) and `InputProfile_User.xml`
@@ -82,6 +84,7 @@ export const ATTESTATION_EXCLUDED_PATHS: ReadonlySet<string> = new Set([
   "clientconfig.original.ini",
   "battleye/beclient_x64.cfg.original",
   "steam_api64.original.dll",
+  "vivoxsdk_x64.original.dll",
 ]);
 
 /** Directory prefixes never part of the shipped tree (runtime output). */
@@ -110,6 +113,9 @@ export const ATTESTATION_EXCLUDED_SUFFIXES: readonly string[] = [
 export const ATTESTATION_OVERRIDE_PATHS: readonly string[] = [
   "steam_api64.dll",
   "vivoxsdk_x64.dll",
+  // Added by the launcher (no vanilla counterpart): attested via an override
+  // entry, which mergeExpectedFiles accepts for new paths too.
+  "vivoxsdk_x64_v5.dll",
 ];
 
 /** True when a path must not take part in the attestation root. */

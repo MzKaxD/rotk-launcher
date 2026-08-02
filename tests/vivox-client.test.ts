@@ -102,6 +102,23 @@ describe("Vivox client deployment", () => {
 
     await expect(readFile(join(fixture.root, "vivoxsdk_x64.original.dll"), "utf8"))
       .resolves.toBe(contents.v4);
+    // The legacy name does not match the attestation's `.original.dll` backup
+    // shape, so keeping it would flag the install as carrying an unexpected DLL.
+    await expect(readFile(join(fixture.root, "vivoxsdk_x64_original.dll")))
+      .rejects.toThrow();
+  });
+
+  it("leaves an unknown file under the legacy backup name untouched", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.root, "vivoxsdk_x64.dll"), contents.v4);
+    await writeFile(join(fixture.root, "vivoxsdk_x64_original.dll"), contents.stale);
+
+    await deploy(fixture);
+
+    // Not our backup: it must survive and surface through attestation instead
+    // of being silently deleted.
+    await expect(readFile(join(fixture.root, "vivoxsdk_x64_original.dll"), "utf8"))
+      .resolves.toBe(contents.stale);
   });
 
   it("repairs a corrupt backup from an untouched stock DLL", async () => {

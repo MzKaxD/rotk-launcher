@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { copyFile, stat } from "node:fs/promises";
+import { copyFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 export const VIVOX_STOCK_V4_SHA256 =
@@ -97,6 +97,14 @@ async function deployVivoxCompatibilityWithPolicy(
 
   if (await fileHash(backupPath) !== policy.stockV4Sha256) {
     throw new Error("La sauvegarde du SDK Vivox historique est invalide.");
+  }
+
+  // The legacy backup name does not match the attestation's `.original.dll`
+  // backup shape, so leaving it would flag every migrated install as carrying
+  // an unexpected DLL. Only our own verified backup is removed; an unknown
+  // file under that name stays on disk and gets reported, as it should be.
+  if (await fileHash(legacyBackupPath) === policy.stockV4Sha256) {
+    await rm(legacyBackupPath, { force: true });
   }
 
   // Repair an absent, stale, or corrupt Vivox 5 runtime from the validated copy.
