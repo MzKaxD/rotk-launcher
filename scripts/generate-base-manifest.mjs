@@ -49,6 +49,7 @@ const EXCLUDED_PATHS = new Set([
   "clientconfig.original.ini",
   "battleye/beclient_x64.cfg.original",
   "steam_api64.original.dll",
+  "vivoxsdk_x64.original.dll",
 ]);
 const EXCLUDED_PREFIXES = ["logs/", "crashes/", "cache/", "battleye/"];
 const EXCLUDED_SUFFIXES = [".log", ".dmp", ".original"];
