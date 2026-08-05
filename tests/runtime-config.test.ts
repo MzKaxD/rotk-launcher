@@ -3,18 +3,19 @@ import { gameLauncherInternals } from "../electron/services/game-launcher.js";
 import { DEFAULT_RUNTIME_CONFIG, serverList } from "../electron/services/runtime-config.js";
 
 describe("public ROTK runtime", () => {
-  it("targets the OVH gateway and every public login listener", () => {
+  it("targets the GAME 2 gateway and every public login listener", () => {
     expect(DEFAULT_RUNTIME_CONFIG.environment).toBe("production");
-    expect(DEFAULT_RUNTIME_CONFIG.gatewayOrigin).toBe("http://51.255.160.224");
+    expect(DEFAULT_RUNTIME_CONFIG.label).toBe("ROTK GAME 2");
+    expect(DEFAULT_RUNTIME_CONFIG.gatewayOrigin).toBe("http://162.19.94.95");
     expect(DEFAULT_RUNTIME_CONFIG.voiceGrantOrigin).toBe(
       "https://vps-c717eb9e.vps.ovh.net",
     );
     expect(serverList(DEFAULT_RUNTIME_CONFIG)).toBe(
-      "51.255.160.224:20042;51.255.160.224:20043;51.255.160.224:20044;51.255.160.224:20045",
+      "162.19.94.95:20042;162.19.94.95:20043;162.19.94.95:20044;162.19.94.95:20045",
     );
   });
 
-  it("passes only the short ticket and bounded OVH endpoints to H1Z1", () => {
+  it("passes only the short ticket and bounded GAME 2 endpoints to H1Z1", () => {
     const durableKey = "0123456789abcdef0123456789abcdef";
     const launchTicket = "T".repeat(43);
     const args = gameLauncherInternals.buildLaunchArguments(
@@ -28,7 +29,7 @@ describe("public ROTK runtime", () => {
     expect(args).toContain(`sessionid=${launchTicket}`);
     expect(args.join(" ")).not.toContain(durableKey);
     expect(args).toContain(
-      `server=51.255.160.224:20042;51.255.160.224:20043;51.255.160.224:20044;51.255.160.224:20045`,
+      `server=162.19.94.95:20042;162.19.94.95:20043;162.19.94.95:20044;162.19.94.95:20045`,
     );
     expect(args).toContain(
       "SteamGatewayUrl=http://127.0.0.1:49152/rest/auth/session/create",
@@ -36,9 +37,9 @@ describe("public ROTK runtime", () => {
     expect(args).toContain(
       "VivoxGrantUrl=https://vps-c717eb9e.vps.ovh.net",
     );
-    expect(args).toContain("CommandQueue:motd_uri=http://51.255.160.224/");
+    expect(args).toContain("CommandQueue:motd_uri=http://162.19.94.95/");
     expect(args.some((argument) => (
-      argument.includes("51.255.160.224/rest/auth/session/create")
+      argument.includes("162.19.94.95/rest/auth/session/create")
     ))).toBe(false);
     expect(args.join(" ")).not.toMatch(
       /token.?key|private.?key|client.?secret|password/i,

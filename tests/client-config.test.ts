@@ -70,7 +70,7 @@ describe("ClientConfig synchronization", () => {
     expect(() => synchronizeClientConfig(
       original,
       runtime,
-      `http://51.255.160.224/rest/auth/session/create?sessionid=${authKey}`,
+      `http://203.0.113.10/rest/auth/session/create?sessionid=${authKey}`,
     )).toThrow(
       "Invalid local ROTK session gateway URL",
     );
