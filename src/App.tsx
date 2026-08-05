@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { LauncherSnapshot, OperationResult } from "../shared/contracts";
+import { GlobalActivityCenter } from "./components/GlobalActivityCenter";
 import { InstallPanel } from "./components/InstallPanel";
 import { LauncherFooter } from "./components/LauncherFooter";
 import { NewsCarousel } from "./components/NewsCarousel";
@@ -92,6 +93,7 @@ export default function App() {
     <main className="launcher-shell">
       <WindowChrome appVersion={snapshot.appVersion} />
       <NewsCarousel updates={snapshot.updates} />
+      <GlobalActivityCenter snapshot={snapshot} />
       {(transientError || snapshot.error) && (
         <div className="error-toast" role="alert">
           <strong>{copy.app.operationInterrupted}</strong>

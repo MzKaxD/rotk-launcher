@@ -17,16 +17,13 @@ export function UpdateBanner({ snapshot, busy, onDownload, onInstall }: UpdateBa
 
   const visible =
     update.status === "update-available"
-    || update.status === "downloading"
     || update.status === "downloaded"
     || (update.status === "error" && update.error !== null);
   if (!visible || dismissed || !update.availableVersion) return null;
 
   const version = `v${update.availableVersion}`;
   const label =
-    update.status === "downloading"
-      ? copy.update.downloading
-      : update.status === "downloaded"
+    update.status === "downloaded"
         ? copy.update.restart
         : update.status === "error"
           ? copy.update.failed
@@ -36,9 +33,7 @@ export function UpdateBanner({ snapshot, busy, onDownload, onInstall }: UpdateBa
       ? update.error ?? ""
       : update.status === "downloaded"
         ? copy.update.restartDetail
-        : update.status === "downloading"
-          ? version
-          : copy.update.availableDetail;
+        : copy.update.availableDetail;
 
   return (
     <aside className="update-banner" role="status">
@@ -46,11 +41,6 @@ export function UpdateBanner({ snapshot, busy, onDownload, onInstall }: UpdateBa
       <div className="update-banner__text">
         <strong>{label}</strong>
         <small title={detail}>{detail}</small>
-        {update.status === "downloading" && (
-          <span className="update-banner__progress">
-            <i style={{ width: `${update.progressPercent ?? 0}%` }} />
-          </span>
-        )}
       </div>
       {update.status === "update-available" && (
         <button type="button" disabled={busy} onClick={onDownload}>

@@ -34,7 +34,7 @@ Une installation terminée est mémorisée dans `%APPDATA%\ROTK Launcher\config.
 - shim `steam_api64.dll` open source, compilable de façon déterministe avec Zig ;
 - isolation Electron (`contextIsolation`, sandbox, IPC limité et navigation externe filtrée).
 
-La configuration intégrée cible actuellement le serveur OVH ROTK `51.255.160.224` et ses listeners login `20042` à `20045`. Le futur manifeste runtime HTTPS signé remplacera cette configuration bornée sans exposer d’arguments arbitraires au renderer.
+La branche `new-server` cible le serveur GAME 2 ROTK `162.19.94.95` et ses listeners login `20042` à `20045`. Le futur manifeste runtime HTTPS signé remplacera cette configuration bornée sans exposer d’arguments arbitraires au renderer.
 
 ## Authentification du compte joueur
 
@@ -47,7 +47,7 @@ La clé est chiffrée par Electron `safeStorage` — Windows DPAPI sur la platef
 - Windows 10 ou 11 x64 ;
 - Node.js 22 ;
 - npm 10 ou ultérieur ;
-- [Zig 0.15.2](https://ziglang.org/download/0.15.2/) pour reconstruire le shim natif.
+- [Zig 0.15.2](https://ziglang.org/download/0.15.2/) pour reconstruire les DLL natives.
 
 Lancer l’application en développement :
 
@@ -57,6 +57,11 @@ cd rotk-launcher
 npm ci
 npm run dev
 ```
+
+Les commandes `dev`, `dev:isolated`, `dist` et `dist:dir` reconstruisent
+automatiquement le proxy vocal ROTK puis vérifient le runtime Vivox officiel
+avant de démarrer. Un worktree frais ne peut ainsi pas lancer un client avec
+un proxy absent ou incohérent.
 
 Le mode développeur normal réutilise la configuration du launcher installé. Pour un test volontairement isolé, sans toucher à cette configuration :
 
