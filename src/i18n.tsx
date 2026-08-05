@@ -122,6 +122,25 @@ export interface Copy {
     progressPhases: Record<"scanning" | "copying" | "verifying" | "configuring" | "finalizing", string>;
     progressFiles: Record<"scanning" | "verifying" | "configuring" | "finalizing", string>;
   };
+  activity: {
+    regionLabel: string;
+    eyebrow: string;
+    installation: string;
+    assets: string;
+    integrity: string;
+    launch: string;
+    launcherUpdate: string;
+    checkingUpdate: string;
+    checkingAssets: string;
+    preparingFiles: string;
+    integrityDetail: string;
+    launchDetail: string;
+    updateDetail: string;
+    working: string;
+    files: (completed: number, total: number) => string;
+    packs: (completed: number, total: number) => string;
+    progress: (operation: string) => string;
+  };
   integrity: {
     verifying: string;
   };
@@ -262,6 +281,25 @@ const COPY: Record<AppLocale, Copy> = {
         configuring: "Applying ROTK client configuration",
         finalizing: "Atomic finalization",
       },
+    },
+    activity: {
+      regionLabel: "Launcher operations",
+      eyebrow: "OPERATION IN PROGRESS",
+      installation: "ROTK CLIENT INSTALLATION",
+      assets: "ROTK GAME ASSETS",
+      integrity: "GAME FILE VERIFICATION",
+      launch: "GAME LAUNCH",
+      launcherUpdate: "LAUNCHER UPDATE",
+      checkingUpdate: "CHECKING FOR UPDATE",
+      checkingAssets: "Checking the official asset feed",
+      preparingFiles: "Preparing the H1Z1 client files",
+      integrityDetail: "Checking every game file before launch",
+      launchDetail: "Preparing the secure game session",
+      updateDetail: "Contacting the official release feed",
+      working: "WORKING",
+      files: (completed, total) => `${completed} / ${total} files`,
+      packs: (completed, total) => `${completed} / ${total} packs`,
+      progress: (operation) => `${operation} progress`,
     },
     integrity: {
       verifying: "VERIFYING GAME FILES",
@@ -413,6 +451,25 @@ const COPY: Record<AppLocale, Copy> = {
         configuring: "Application du client ROTK",
         finalizing: "Finalisation atomique",
       },
+    },
+    activity: {
+      regionLabel: "Opérations du launcher",
+      eyebrow: "OPÉRATION EN COURS",
+      installation: "INSTALLATION DU CLIENT ROTK",
+      assets: "ASSETS DU JEU ROTK",
+      integrity: "VÉRIFICATION DES FICHIERS",
+      launch: "LANCEMENT DU JEU",
+      launcherUpdate: "MISE À JOUR DU LAUNCHER",
+      checkingUpdate: "RECHERCHE DE MISE À JOUR",
+      checkingAssets: "Vérification du flux officiel des assets",
+      preparingFiles: "Préparation des fichiers du client H1Z1",
+      integrityDetail: "Vérification de chaque fichier avant le lancement",
+      launchDetail: "Préparation de la session de jeu sécurisée",
+      updateDetail: "Connexion au flux officiel des releases",
+      working: "EN COURS",
+      files: (completed, total) => `${completed} / ${total} fichiers`,
+      packs: (completed, total) => `${completed} / ${total} packs`,
+      progress: (operation) => `Progression de l’opération ${operation}`,
     },
     integrity: {
       verifying: "VÉRIFICATION DES FICHIERS DU JEU",

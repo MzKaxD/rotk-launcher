@@ -17,6 +17,26 @@ function statusCopy(snapshot: LauncherSnapshot, copy: Copy): { label: string; de
       detail: snapshot.gamePid ? `${copy.footer.process} ${snapshot.gamePid}` : copy.footer.activeProcess,
     };
   }
+  const assetSyncActive = snapshot.assetSync.status === "checking"
+    || snapshot.assetSync.status === "downloading"
+    || snapshot.assetSync.status === "installing";
+  if (snapshot.phase !== "installing" && assetSyncActive) {
+    const progress = snapshot.assetSync.progress;
+    const bytePercent = progress && progress.totalBytes > 0
+      ? (progress.completedBytes / progress.totalBytes) * 100
+      : null;
+    const packPercent = progress && progress.totalAssets > 0
+      ? (progress.assetsCompleted / progress.totalAssets) * 100
+      : null;
+    const percent = snapshot.assetSync.status === "installing"
+      ? packPercent
+      : bytePercent ?? packPercent;
+    const status = copy.assets.status[snapshot.assetSync.status];
+    const detail = percent === null
+      ? status
+      : `${status} — ${Math.min(100, Math.max(0, Math.round(percent)))}%`;
+    return { label: copy.assets.updating, detail };
+  }
   if (snapshot.phase === "launching") {
     const assetProgress = snapshot.assetSync.progress;
     if (assetProgress && assetProgress.totalBytes > 0) {
