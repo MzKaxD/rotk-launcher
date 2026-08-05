@@ -47,7 +47,7 @@ La clé est chiffrée par Electron `safeStorage` — Windows DPAPI sur la platef
 - Windows 10 ou 11 x64 ;
 - Node.js 22 ;
 - npm 10 ou ultérieur ;
-- [Zig 0.15.2](https://ziglang.org/download/0.15.2/) pour reconstruire le shim natif.
+- [Zig 0.15.2](https://ziglang.org/download/0.15.2/) pour reconstruire les DLL natives.
 
 Lancer l’application en développement :
 
@@ -57,6 +57,11 @@ cd rotk-launcher
 npm ci
 npm run dev
 ```
+
+Les commandes `dev`, `dev:isolated`, `dist` et `dist:dir` reconstruisent
+automatiquement le proxy vocal ROTK puis vérifient le runtime Vivox officiel
+avant de démarrer. Un worktree frais ne peut ainsi pas lancer un client avec
+un proxy absent ou incohérent.
 
 Le mode développeur normal réutilise la configuration du launcher installé. Pour un test volontairement isolé, sans toucher à cette configuration :
 
