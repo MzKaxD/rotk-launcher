@@ -34,7 +34,7 @@ Une installation terminée est mémorisée dans `%APPDATA%\ROTK Launcher\config.
 - shim `steam_api64.dll` open source, compilable de façon déterministe avec Zig ;
 - isolation Electron (`contextIsolation`, sandbox, IPC limité et navigation externe filtrée).
 
-La configuration intégrée cible actuellement le serveur OVH ROTK `51.255.160.224` et ses listeners login `20042` à `20045`. Le futur manifeste runtime HTTPS signé remplacera cette configuration bornée sans exposer d’arguments arbitraires au renderer.
+La branche `new-server` cible le serveur GAME 2 ROTK `162.19.94.95` et ses listeners login `20042` à `20045`. Le futur manifeste runtime HTTPS signé remplacera cette configuration bornée sans exposer d’arguments arbitraires au renderer.
 
 ## Authentification du compte joueur
 
