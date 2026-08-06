@@ -6,7 +6,9 @@ describe("public ROTK runtime", () => {
   it("targets the GAME 2 gateway and every public login listener", () => {
     expect(DEFAULT_RUNTIME_CONFIG.environment).toBe("production");
     expect(DEFAULT_RUNTIME_CONFIG.label).toBe("ROTK GAME 2");
-    expect(DEFAULT_RUNTIME_CONFIG.gatewayOrigin).toBe("http://162.19.94.95");
+    // The Gateway moved off :80 so Nginx can own it for the website; the port
+    // must travel into every URL the client is handed.
+    expect(DEFAULT_RUNTIME_CONFIG.gatewayOrigin).toBe("http://162.19.94.95:8080");
     expect(DEFAULT_RUNTIME_CONFIG.voiceGrantOrigin).toBe(
       "https://vps-c717eb9e.vps.ovh.net",
     );
@@ -37,9 +39,9 @@ describe("public ROTK runtime", () => {
     expect(args).toContain(
       "VivoxGrantUrl=https://vps-c717eb9e.vps.ovh.net",
     );
-    expect(args).toContain("CommandQueue:motd_uri=http://162.19.94.95/");
+    expect(args).toContain("CommandQueue:motd_uri=http://162.19.94.95:8080/");
     expect(args.some((argument) => (
-      argument.includes("162.19.94.95/rest/auth/session/create")
+      argument.includes("162.19.94.95:8080/rest/auth/session/create")
     ))).toBe(false);
     expect(args.join(" ")).not.toMatch(
       /token.?key|private.?key|client.?secret|password/i,
