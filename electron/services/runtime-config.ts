@@ -20,14 +20,16 @@ export interface RuntimeConfig {
 export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   environment: "production",
   label: "ROTK GAME 2",
-  gatewayOrigin: "http://162.19.94.95",
+  // The Gateway moved off :80 so Nginx can own it for the website. Nothing in
+  // the client requires 80 — it only ever learns this URL from here, and the
+  // port travels with it into every derived value below.
+  gatewayOrigin: "http://162.19.94.95:8080",
   voiceGrantOrigin: "https://vps-c717eb9e.vps.ovh.net",
   loginHost: "162.19.94.95",
   loginPorts: [20042, 20043, 20044, 20045],
   websiteOrigin: "https://rotk.app",
-  launchTicketUrl: "https://europe-west1-rotk-project.cloudfunctions.net/createLaunchTicket",
-  attestationChallengeUrl:
-    "https://europe-west1-rotk-project.cloudfunctions.net/beginLauncherAttestation",
+  launchTicketUrl: "https://rotk.app/api/launcher/ticket",
+  attestationChallengeUrl: "https://rotk.app/api/launcher/attestation/challenge",
 };
 
 export function serverList(runtime: RuntimeConfig): string {
