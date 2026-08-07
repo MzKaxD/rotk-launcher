@@ -91,6 +91,13 @@ describe("ROTK launch ticket client", () => {
       .rejects.toThrow("The ROTK launcher key was rejected");
   });
 
+  it("names an account the service holds no game identity for", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ error: "account_not_ready" }, 403)) as typeof fetch;
+
+    await expect(createLaunchTicket(launcherKey, endpoint, { fetchImpl }))
+      .rejects.toThrow("This ROTK account is not ready to play yet");
+  });
+
   it("rejects malformed identity data even after HTTP 200", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({
       ...validResponse,
