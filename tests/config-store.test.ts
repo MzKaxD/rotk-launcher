@@ -132,6 +132,39 @@ describe("ConfigStore", () => {
     expect(persisted).toEqual({ schemaVersion: 1 });
   });
 
+  it("remembers the selected server and role across restarts", async () => {
+    const directory = await temporaryDirectory();
+    await new ConfigStore(directory).setLaunchProfile("test", "admin");
+
+    const reloaded = await new ConfigStore(directory).load();
+
+    expect(reloaded).toEqual({ schemaVersion: 1, serverId: "test", role: "admin" });
+  });
+
+  it("falls back to a fresh state rather than trusting an unknown server", async () => {
+    const directory = await temporaryDirectory();
+    await writeFile(join(directory, "config.v1.json"), JSON.stringify({
+      schemaVersion: 1,
+      installation,
+      serverId: "game3",
+    }), "utf8");
+    await rm(join(directory, "config.v1.backup.json"), { force: true });
+
+    const loaded = await new ConfigStore(directory).load();
+
+    expect(loaded).toEqual({ schemaVersion: 1 });
+  });
+
+  it("refuses to persist a server or role it does not define", async () => {
+    const directory = await temporaryDirectory();
+    const store = new ConfigStore(directory);
+
+    await expect(store.setLaunchProfile("game3" as never, "player"))
+      .rejects.toThrow("Unknown ROTK server");
+    await expect(store.setLaunchProfile("game2", "owner" as never))
+      .rejects.toThrow("Unknown ROTK launch role");
+  });
+
   it("removes a corrupt legacy file instead of retaining a possible player key", async () => {
     const directory = await temporaryDirectory();
     await writeFile(join(directory, "config.v1.json"), "{broken", "utf8");

@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import {
+  isPlayerRole,
+  isServerId,
+  type PlayerRole,
+  type ServerId,
+} from "../../shared/launch-profile.js";
 
 export interface InstalledClientConfig {
   installId: string;
@@ -16,6 +22,14 @@ export interface LauncherConfig {
   installation?: InstalledClientConfig;
   /** Custom asset synchronization before launch. Defaults to enabled. */
   assetSyncEnabled?: boolean;
+  /**
+   * Selected ROTK server. Absent means GAME 2: a launcher that never chose
+   * must not silently connect to the test infrastructure. The single client
+   * installation serves both — ClientConfig.ini is rewritten at every launch.
+   */
+  serverId?: ServerId;
+  /** Launch as the player account or the admin/moderator one. Defaults to player. */
+  role?: PlayerRole;
 }
 
 interface StoredConfigCandidate {
@@ -46,7 +60,9 @@ function isValidConfig(value: unknown): value is LauncherConfig {
   return (
     candidate.schemaVersion === 1 &&
     installationIsValid &&
-    (candidate.assetSyncEnabled === undefined || typeof candidate.assetSyncEnabled === "boolean")
+    (candidate.assetSyncEnabled === undefined || typeof candidate.assetSyncEnabled === "boolean") &&
+    (candidate.serverId === undefined || isServerId(candidate.serverId)) &&
+    (candidate.role === undefined || isPlayerRole(candidate.role))
   );
 }
 
@@ -54,6 +70,8 @@ function withoutLegacyIdentity(value: LauncherConfig): LauncherConfig {
   const next: LauncherConfig = { schemaVersion: 1 };
   if (value.installation) next.installation = value.installation;
   if (value.assetSyncEnabled !== undefined) next.assetSyncEnabled = value.assetSyncEnabled;
+  if (value.serverId !== undefined) next.serverId = value.serverId;
+  if (value.role !== undefined) next.role = value.role;
   return next;
 }
 
@@ -142,6 +160,16 @@ export class ConfigStore {
   async setInstallation(installation: InstalledClientConfig): Promise<LauncherConfig> {
     const current = await this.load();
     const next: LauncherConfig = { ...current, installation };
+    await this.save(next);
+    return next;
+  }
+
+  /** Server and role are written together: a partial selection is never valid. */
+  async setLaunchProfile(serverId: ServerId, role: PlayerRole): Promise<LauncherConfig> {
+    if (!isServerId(serverId)) throw new Error("Unknown ROTK server");
+    if (!isPlayerRole(role)) throw new Error("Unknown ROTK launch role");
+    const current = await this.load();
+    const next: LauncherConfig = { ...current, serverId, role };
     await this.save(next);
     return next;
   }

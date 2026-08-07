@@ -16,11 +16,34 @@ function snapshot(overrides: Partial<LauncherSnapshot> = {}): LauncherSnapshot {
     installationRoot: "C:\\H1Z1",
     updates: [],
     runtime: {
+      serverId: "game2",
       environment: "development",
       label: "ROTK GAME 2",
       websiteOrigin: "https://rotk.app",
+      players: 12,
+      capacity: 150,
+      servers: [
+        {
+          id: "game2",
+          label: "ROTK GAME 2",
+          environment: "production",
+          websiteOrigin: "https://rotk.app",
+          players: 12,
+          capacity: 150,
+        },
+      ],
     },
-    playerIdentity: { configured: true, playerKey: "0".repeat(32) },
+    playerIdentity: {
+      serverId: "game2",
+      role: "player",
+      configured: true,
+      keys: {
+        "game2:player": "0".repeat(32),
+        "game2:admin": null,
+        "test:player": null,
+        "test:admin": null,
+      },
+    },
     launcherUpdate: {
       status: "idle",
       availableVersion: null,
