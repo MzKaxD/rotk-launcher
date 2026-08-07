@@ -164,6 +164,14 @@ function serviceError(status: number, value: unknown): Error {
         : `This ROTK account is permanently banned.${reason}`,
     );
   }
+  // The account exists and the key is good, but the service holds no game
+  // identity to put in a ticket. Naming that is the difference between a player
+  // who knows to finish signing in and one who reinstalls the game twice.
+  if (errorCode === "account_not_ready") {
+    return new Error(
+      "This ROTK account is not ready to play yet. Sign in on the ROTK website, then try again.",
+    );
+  }
   if (status === 401 || errorCode === "invalid_credentials") {
     return new Error("The ROTK launcher key was rejected");
   }
