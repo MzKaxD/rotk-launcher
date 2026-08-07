@@ -12,7 +12,11 @@ export const MAIN_COPY = {
     installationInProgress: "An installation is already in progress.",
     clientNotReady: "The ROTK client is not ready.",
     identityLocked: "Close H1Z1 before changing the ROTK account key.",
+    serverLocked: "Close H1Z1 before changing the ROTK server.",
+    unknownServer: "This ROTK server is not available in this launcher.",
+    unknownRole: "This ROTK launch mode is not supported.",
     keyRequired: "Add the ROTK launcher key from your account before playing.",
+    adminKeyRequired: "Add the administrator key for this server, or switch back to player mode.",
     unauthorizedLink: "This ROTK link is not allowed.",
     sourceDialog: {
       title: "Choose the H1Z1 client",
@@ -49,7 +53,11 @@ export const MAIN_COPY = {
     installationInProgress: "Une installation est déjà en cours.",
     clientNotReady: "Le client ROTK n’est pas prêt.",
     identityLocked: "Ferme H1Z1 avant de modifier la clé de compte ROTK.",
+    serverLocked: "Ferme H1Z1 avant de changer de serveur ROTK.",
+    unknownServer: "Ce serveur ROTK n’est pas disponible dans ce launcher.",
+    unknownRole: "Ce mode de lancement ROTK n’est pas pris en charge.",
     keyRequired: "Ajoute la clé launcher de ton compte ROTK avant de jouer.",
+    adminKeyRequired: "Ajoute la clé administrateur de ce serveur, ou repasse en mode joueur.",
     unauthorizedLink: "Lien ROTK non autorisé.",
     sourceDialog: {
       title: "Choisir le client H1Z1",
@@ -118,6 +126,9 @@ const FRENCH_ERRORS = new Map<string, string>([
   ["Invalid ROTK player key", "La clé joueur ROTK est invalide."],
   ["Secure ROTK key storage is unavailable on this Windows account", "Le stockage Windows sécurisé de la clé ROTK est indisponible sur ce compte."],
   ["Unsupported launcher locale", "Langue du launcher non prise en charge."],
+  ["Unknown ROTK server", "Serveur ROTK inconnu."],
+  ["Unknown ROTK launch role", "Mode de lancement ROTK inconnu."],
+  ["Unknown ROTK launch profile", "Profil de lancement ROTK inconnu."],
 ]);
 
 const DYNAMIC_ENGLISH_ERRORS: Array<[RegExp, (match: RegExpMatchArray) => string]> = [

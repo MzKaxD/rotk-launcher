@@ -1,6 +1,8 @@
-import { CircleAlert, Gauge, KeyRound, Play, RotateCcw, Settings2 } from "lucide-react";
+import { CircleAlert, KeyRound, Play, RotateCcw, Settings2 } from "lucide-react";
 import type { LauncherSnapshot } from "../../shared/contracts";
+import type { PlayerRole, ServerId } from "../../shared/launch-profile";
 import { useI18n, type Copy } from "../i18n";
+import { ServerSelect } from "./ServerSelect";
 
 interface LauncherFooterProps {
   snapshot: LauncherSnapshot;
@@ -8,6 +10,7 @@ interface LauncherFooterProps {
   onPrimary(): void;
   onSetup(): void;
   onIdentity(): void;
+  onSelectLaunchProfile(serverId: ServerId, role: PlayerRole): void;
 }
 
 function statusCopy(snapshot: LauncherSnapshot, copy: Copy): { label: string; detail: string } {
@@ -59,7 +62,14 @@ function statusCopy(snapshot: LauncherSnapshot, copy: Copy): { label: string; de
   return { label: copy.footer.setupRequired, detail: copy.footer.createIndependentInstall };
 }
 
-export function LauncherFooter({ snapshot, busy, onPrimary, onSetup, onIdentity }: LauncherFooterProps) {
+export function LauncherFooter({
+  snapshot,
+  busy,
+  onPrimary,
+  onSetup,
+  onIdentity,
+  onSelectLaunchProfile,
+}: LauncherFooterProps) {
   const { copy } = useI18n();
   const status = statusCopy(snapshot, copy);
   const ready = snapshot.canPlay;
@@ -75,9 +85,6 @@ export function LauncherFooter({ snapshot, busy, onPrimary, onSetup, onIdentity 
         : needsAccountKey
           ? copy.footer.addAccountKey
           : copy.footer.install;
-  const runtimeLabel = snapshot.runtime.environment === "development"
-    ? copy.footer.developmentServer
-    : snapshot.runtime.label;
 
   return (
     <footer className="launcher-footer">
@@ -89,16 +96,11 @@ export function LauncherFooter({ snapshot, busy, onPrimary, onSetup, onIdentity 
         </div>
       </div>
 
-      <div className="launcher-footer__server">
-        <Gauge size={18} />
-        <div>
-          <span>{copy.footer.environment}</span>
-          <strong>{runtimeLabel}</strong>
-        </div>
-        <i className={snapshot.runtime.environment === "development" ? "is-dev" : ""}>
-          {snapshot.runtime.environment === "development" ? "DEV" : "LIVE"}
-        </i>
-      </div>
+      <ServerSelect
+        snapshot={snapshot}
+        disabled={busy || running || installing}
+        onSelect={onSelectLaunchProfile}
+      />
 
       <div className="footer-tools">
         <button type="button" onClick={onIdentity} disabled={installing} aria-label={copy.footer.playerIdentity} title={copy.footer.playerIdentity}>

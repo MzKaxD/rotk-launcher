@@ -1,9 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Copy, ExternalLink, Eye, EyeOff, KeyRound, ShieldCheck, X } from "lucide-react";
+import {
+  ChevronDown,
+  Copy,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  KeyRound,
+  ShieldCheck,
+  Trash2,
+  X,
+} from "lucide-react";
 import type { LauncherSnapshot, OperationResult, PlayerIdentitySummary } from "../../shared/contracts";
+import {
+  LAUNCH_PROFILE_IDS,
+  SERVER_IDS,
+  type LaunchProfileId,
+  type PlayerRole,
+  type ServerId,
+} from "../../shared/launch-profile";
 import { isValidPlayerKey, normalizePlayerKey, PLAYER_KEY_HEX_LENGTH } from "../../shared/player-key";
-import { useI18n } from "../i18n";
+import { useI18n, type Copy as CopyText } from "../i18n";
 
 interface PlayerIdentityPanelProps {
   snapshot: LauncherSnapshot;
@@ -12,41 +29,82 @@ interface PlayerIdentityPanelProps {
 }
 
 type Feedback = { tone: "success" | "error"; text: string } | null;
+type Drafts = Record<LaunchProfileId, string>;
+
+/** The key almost every player needs; the other three are behind the fold. */
+const PRIMARY_PROFILE: LaunchProfileId = "game2:player";
+const SECONDARY_PROFILES: LaunchProfileId[] = LAUNCH_PROFILE_IDS.filter(
+  (profile) => profile !== PRIMARY_PROFILE,
+);
+
+function draftsFrom(identity: PlayerIdentitySummary): Drafts {
+  return Object.fromEntries(
+    LAUNCH_PROFILE_IDS.map((profile) => [profile, identity.keys[profile] ?? ""]),
+  ) as Drafts;
+}
+
+function serverOf(profile: LaunchProfileId): ServerId {
+  return profile.split(":")[0] as ServerId;
+}
+
+function roleOf(profile: LaunchProfileId): PlayerRole {
+  return profile.split(":")[1] as PlayerRole;
+}
+
+function websiteHost(websiteOrigin: string): string {
+  try {
+    return new URL(websiteOrigin).host;
+  } catch {
+    return websiteOrigin;
+  }
+}
 
 export function PlayerIdentityPanel({ snapshot, open, onClose }: PlayerIdentityPanelProps) {
   const { copy } = useI18n();
-  const [draft, setDraft] = useState(snapshot.playerIdentity.playerKey ?? "");
-  const [visible, setVisible] = useState(false);
+  const identity = snapshot.playerIdentity;
+  const [drafts, setDrafts] = useState<Drafts>(() => draftsFrom(identity));
+  const [visible, setVisible] = useState<LaunchProfileId | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const [working, setWorking] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const locked = snapshot.phase === "launching" || snapshot.phase === "running";
-  const normalizedDraft = useMemo(() => normalizePlayerKey(draft), [draft]);
-  const valid = isValidPlayerKey(draft);
-  const dirty = normalizedDraft !== (snapshot.playerIdentity.playerKey ?? "");
+  const storedKeys = LAUNCH_PROFILE_IDS.map((profile) => identity.keys[profile]).join("|");
+  const extraKeyCount = SECONDARY_PROFILES.filter((profile) => identity.keys[profile] !== null).length;
+  const hosts = useMemo(
+    () => Object.fromEntries(snapshot.runtime.servers.map((server) => [
+      server.id,
+      websiteHost(server.websiteOrigin),
+    ])) as Record<ServerId, string>,
+    [snapshot.runtime.servers],
+  );
 
+  // The main process owns the stored keys; the fields follow it rather than
+  // holding an independent copy that could drift from what a launch would use.
   useEffect(() => {
-    setDraft(snapshot.playerIdentity.playerKey ?? "");
-  }, [snapshot.playerIdentity.playerKey]);
+    setDrafts(draftsFrom(identity));
+  }, [storedKeys]);
 
   useEffect(() => {
     if (!open) return;
-    setVisible(false);
+    setVisible(null);
     setFeedback(null);
+    // A launcher already carrying an extra key opens with the section unfolded:
+    // it is configured state, not an option left to discover again.
+    setExpanded(extraKeyCount > 0);
   }, [open]);
 
   async function run(
-    operation: () => Promise<OperationResult<PlayerIdentitySummary>>,
+    operation: () => Promise<OperationResult<unknown>>,
     successMessage: string,
   ): Promise<void> {
     setWorking(true);
     setFeedback(null);
     try {
       const result = await operation();
-      if (!result.ok || !result.value) {
+      if (!result.ok) {
         setFeedback({ tone: "error", text: result.error ?? copy.app.operationFailed });
         return;
       }
-      setDraft(result.value.playerKey ?? "");
       setFeedback({ tone: "success", text: successMessage });
     } catch {
       setFeedback({ tone: "error", text: copy.app.operationFailed });
@@ -55,27 +113,36 @@ export function PlayerIdentityPanel({ snapshot, open, onClose }: PlayerIdentityP
     }
   }
 
-  function applyPlayerKey(): void {
-    if (!valid) {
+  function applyPlayerKey(profile: LaunchProfileId): void {
+    const draft = normalizePlayerKey(drafts[profile]);
+    if (!isValidPlayerKey(draft)) {
       setFeedback({ tone: "error", text: copy.identity.invalid });
       return;
     }
-    void run(() => window.rotk.setPlayerKey(normalizedDraft), copy.identity.applied);
+    void run(() => window.rotk.setPlayerKey(profile, draft), copy.identity.applied);
   }
 
-  async function copyPlayerKey(): Promise<void> {
-    setWorking(true);
-    setFeedback(null);
-    try {
-      const result = await window.rotk.copyPlayerKey();
-      setFeedback(result.ok
-        ? { tone: "success", text: copy.identity.copied }
-        : { tone: "error", text: result.error ?? copy.app.operationFailed });
-    } catch {
-      setFeedback({ tone: "error", text: copy.app.operationFailed });
-    } finally {
-      setWorking(false);
-    }
+  function keyField(profile: LaunchProfileId) {
+    return (
+      <KeyField
+        key={profile}
+        copy={copy}
+        profile={profile}
+        websiteHost={hosts[serverOf(profile)]}
+        value={drafts[profile]}
+        stored={identity.keys[profile]}
+        disabled={locked || working}
+        visible={visible === profile}
+        onChange={(next) => {
+          setDrafts((current) => ({ ...current, [profile]: next }));
+          setFeedback(null);
+        }}
+        onToggleVisible={() => setVisible((current) => (current === profile ? null : profile))}
+        onSubmit={() => applyPlayerKey(profile)}
+        onCopy={() => void run(() => window.rotk.copyPlayerKey(profile), copy.identity.copied)}
+        onRemove={() => void run(() => window.rotk.clearPlayerKey(profile), copy.identity.removed)}
+      />
+    );
   }
 
   return (
@@ -119,75 +186,160 @@ export function PlayerIdentityPanel({ snapshot, open, onClose }: PlayerIdentityP
 
             <div className="identity-account-guide">
               <span>01</span>
-              <p>{copy.identity.process}</p>
-              <button type="button" onClick={() => void window.rotk.openWebsite("/login")}>
-                {copy.identity.openAccount}
+              <p>{copy.identity.process(hosts.game2)}</p>
+              <button type="button" onClick={() => void window.rotk.openWebsite("/login", "game2")}>
+                {copy.identity.openAccount(hosts.game2)}
                 <ExternalLink size={15} />
               </button>
             </div>
 
-            <form
-              className="identity-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                applyPlayerKey();
-              }}
-            >
-              <label htmlFor="player-key">{copy.identity.keyLabel}</label>
-              <div className={`identity-key-field ${feedback?.tone === "error" ? "has-error" : ""}`}>
-                <KeyRound size={18} />
-                <input
-                  id="player-key"
-                  type={visible ? "text" : "password"}
-                  value={draft}
-                  maxLength={PLAYER_KEY_HEX_LENGTH}
-                  placeholder={copy.identity.placeholder}
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  disabled={locked || working}
-                  onChange={(event) => {
-                    setDraft(event.target.value);
-                    setFeedback(null);
-                  }}
-                />
-                <span className="identity-key-field__count">{draft.length}/{PLAYER_KEY_HEX_LENGTH}</span>
-                <button
-                  type="button"
-                  aria-label={visible ? copy.identity.hide : copy.identity.show}
-                  title={visible ? copy.identity.hide : copy.identity.show}
-                  onClick={() => setVisible((current) => !current)}
-                >
-                  {visible ? <EyeOff size={17} /> : <Eye size={17} />}
-                </button>
-                <button
-                  type="button"
-                  aria-label={copy.identity.copy}
-                  title={copy.identity.copy}
-                  disabled={working || dirty || !snapshot.playerIdentity.configured}
-                  onClick={() => void copyPlayerKey()}
-                >
-                  <Copy size={17} />
-                </button>
-              </div>
+            {keyField(PRIMARY_PROFILE)}
 
-              <div className="identity-actions">
-                <button
-                  type="submit"
-                  className="identity-actions__apply"
-                  disabled={locked || working || !dirty || !valid}
-                >
-                  {copy.identity.apply}
-                </button>
-              </div>
-            </form>
+            <section className="identity-extra">
+              <button
+                type="button"
+                className="identity-extra__toggle"
+                aria-expanded={expanded}
+                onClick={() => setExpanded((current) => !current)}
+              >
+                <ChevronDown size={16} className={expanded ? "is-open" : ""} />
+                <strong>{copy.identity.extraKeys}</strong>
+                <em>{copy.identity.extraKeysCount(extraKeyCount, SECONDARY_PROFILES.length)}</em>
+              </button>
+              {expanded && (
+                <div className="identity-extra__body">
+                  <p>{copy.identity.extraKeysHint}</p>
+                  {SERVER_IDS.map((serverId) => {
+                    const profiles = SECONDARY_PROFILES.filter((profile) => serverOf(profile) === serverId);
+                    if (profiles.length === 0) return null;
+                    const server = snapshot.runtime.servers.find((candidate) => candidate.id === serverId);
+                    return (
+                      <div key={serverId} className="identity-extra__server">
+                        <header>
+                          <strong>{server?.label ?? serverId}</strong>
+                          <button
+                            type="button"
+                            onClick={() => void window.rotk.openWebsite("/login", serverId)}
+                          >
+                            {hosts[serverId]}
+                            <ExternalLink size={13} />
+                          </button>
+                        </header>
+                        {profiles.map((profile) => keyField(profile))}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
 
             <div className={`identity-feedback ${feedback ? `is-${feedback.tone}` : ""}`} aria-live="polite">
-              {feedback?.text ?? "\u00a0"}
+              {feedback?.text ?? " "}
             </div>
           </motion.aside>
         </>
       )}
     </AnimatePresence>
+  );
+}
+
+interface KeyFieldProps {
+  copy: CopyText;
+  profile: LaunchProfileId;
+  websiteHost: string;
+  value: string;
+  stored: string | null;
+  disabled: boolean;
+  visible: boolean;
+  onChange(value: string): void;
+  onToggleVisible(): void;
+  onSubmit(): void;
+  onCopy(): void;
+  onRemove(): void;
+}
+
+function KeyField({
+  copy,
+  profile,
+  websiteHost,
+  value,
+  stored,
+  disabled,
+  visible,
+  onChange,
+  onToggleVisible,
+  onSubmit,
+  onCopy,
+  onRemove,
+}: KeyFieldProps) {
+  const role = roleOf(profile);
+  const normalized = useMemo(() => normalizePlayerKey(value), [value]);
+  const valid = isValidPlayerKey(value);
+  const dirty = normalized !== (stored ?? "");
+  const inputId = `player-key-${profile.replace(":", "-")}`;
+
+  return (
+    <form
+      className="identity-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <label htmlFor={inputId}>
+        {copy.identity.keyLabels[role]}
+        <i className={stored === null ? "is-missing" : ""}>
+          {stored === null ? copy.identity.keyMissing : copy.identity.keySet}
+        </i>
+      </label>
+      <div className="identity-key-field">
+        <KeyRound size={18} />
+        <input
+          id={inputId}
+          type={visible ? "text" : "password"}
+          value={value}
+          maxLength={PLAYER_KEY_HEX_LENGTH}
+          placeholder={copy.identity.placeholder}
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <span className="identity-key-field__count">{value.length}/{PLAYER_KEY_HEX_LENGTH}</span>
+        <button
+          type="button"
+          aria-label={visible ? copy.identity.hide : copy.identity.show}
+          title={visible ? copy.identity.hide : copy.identity.show}
+          onClick={onToggleVisible}
+        >
+          {visible ? <EyeOff size={17} /> : <Eye size={17} />}
+        </button>
+        <button
+          type="button"
+          aria-label={copy.identity.copy}
+          title={copy.identity.copy}
+          disabled={disabled || dirty || stored === null}
+          onClick={onCopy}
+        >
+          <Copy size={17} />
+        </button>
+        <button
+          type="button"
+          aria-label={copy.identity.remove}
+          title={copy.identity.remove}
+          disabled={disabled || stored === null}
+          onClick={onRemove}
+        >
+          <Trash2 size={17} />
+        </button>
+      </div>
+      <p className="identity-form__hint">{copy.identity.keyHints[role](websiteHost)}</p>
+      <div className="identity-actions">
+        <button type="submit" className="identity-actions__apply" disabled={disabled || !dirty || !valid}>
+          {copy.identity.apply}
+        </button>
+      </div>
+    </form>
   );
 }

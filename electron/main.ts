@@ -28,10 +28,21 @@ import {
 } from "../shared/contracts.js";
 import { isAppLocale, type AppLocale } from "../shared/locale.js";
 import {
+  DEFAULT_PLAYER_ROLE,
+  DEFAULT_SERVER_ID,
+  LAUNCH_PROFILE_IDS,
+  isLaunchProfileId,
+  isPlayerRole,
+  isServerId,
+  launchProfileId,
+  type LaunchProfileId,
+  type PlayerRole,
+  type ServerId,
+} from "../shared/launch-profile.js";
+import {
   APP_NAME,
   RECOMMENDED_INSTALL_PARENT_NAME,
   ROTK_INSTALL_DIRECTORY_NAME,
-  WEBSITE_ORIGIN,
   resolveBundledShimPath,
   resolveBundledVivoxProxyPath,
   resolveBundledVivoxRuntimePath,
@@ -41,17 +52,24 @@ import { adoptExistingClient, installClient } from "./services/installer.js";
 import { GameLauncher, validateInstalledClient } from "./services/game-launcher.js";
 import { classifyClientSource, validateInstallDestination } from "./services/path-policy.js";
 import { locateSteamClient } from "./services/steam-locator.js";
-import { DEFAULT_RUNTIME_CONFIG } from "./services/runtime-config.js";
+import {
+  runtimeConfigFor,
+  runtimeConfigList,
+  type RuntimeConfig,
+} from "./services/runtime-config.js";
+import {
+  fetchServerStatus,
+  SERVER_STATUS_POLL_INTERVAL_MS,
+  UNKNOWN_SERVER_STATUS,
+  type ServerStatus,
+} from "./services/server-status.js";
 import { UpdateFeedService } from "./services/update-feed.js";
 import { AssetSyncService } from "./services/asset-sync.js";
 import { LauncherUpdateService } from "./services/launcher-update.js";
 import electronUpdater from "electron-updater";
 import { localizeServiceError, MAIN_COPY } from "./i18n.js";
-import {
-  identityFromPlayerKey,
-  type PlayerIdentity,
-} from "./services/player-identity.js";
-import { PlayerKeyStore } from "./services/player-key-store.js";
+import { identityFromPlayerKey } from "./services/player-identity.js";
+import { PlayerKeyStore, type PlayerKeySet } from "./services/player-key-store.js";
 import { readInstallationMarker } from "./services/installer.js";
 import {
   BASE_MANIFEST_URL,
@@ -106,7 +124,10 @@ let updates: LauncherSnapshot["updates"] = [];
 let lastErrorRaw: string | null = null;
 let gamePid: number | null = null;
 let currentLocale: AppLocale = "en";
-let playerIdentity: PlayerIdentity | null = null;
+let playerKeys: PlayerKeySet = {};
+let selectedServerId: ServerId = DEFAULT_SERVER_ID;
+let selectedRole: PlayerRole = DEFAULT_PLAYER_ROLE;
+let serverStatus: Partial<Record<ServerId, ServerStatus>> = {};
 let quitWhenGameExits = false;
 let assetSyncEnabled = true;
 let assetSyncRunning = false;
@@ -133,6 +154,42 @@ function errorMessage(error: unknown): string {
 
 async function installationRoot(): Promise<string | null> {
   return (await configStore.load()).installation?.root ?? null;
+}
+
+/**
+ * The single source of every endpoint the client is handed. Selecting a server
+ * switches this whole contract at once; nothing downstream reads a URL that did
+ * not come from here.
+ */
+function activeRuntime(): RuntimeConfig {
+  return runtimeConfigFor(selectedServerId);
+}
+
+function activeProfile(): LaunchProfileId {
+  return launchProfileId(selectedServerId, selectedRole);
+}
+
+/** The credential the next launch authenticates with, or null when unset. */
+function activeKey(): string | null {
+  return playerKeys[activeProfile()] ?? null;
+}
+
+function isSelectionLocked(): boolean {
+  return gameLauncher.isRunning() || phase === "launching" || phase === "running";
+}
+
+/**
+ * Refreshes every server's public population. Both are polled, not just the
+ * selected one: the server menu shows where the players actually are, which is
+ * most of the reason to open it.
+ */
+async function refreshServerStatus(): Promise<void> {
+  const samples = await Promise.all(runtimeConfigList().map(async (runtime) => [
+    runtime.id,
+    await fetchServerStatus(runtime),
+  ] as const));
+  serverStatus = Object.fromEntries(samples);
+  await broadcastSnapshot();
 }
 
 function recommendedDestinationPath(): string {
@@ -223,7 +280,10 @@ async function runAssetSync(mode: "sync" | "verify", soft: boolean): Promise<Ope
  * evidence will not match, so the rejection is logged for the admin studio
  * instead of being silently hidden by the client.
  */
-async function attestInstallation(playerKey: string): Promise<unknown | null> {
+async function attestInstallation(
+  playerKey: string,
+  runtime: RuntimeConfig,
+): Promise<unknown | null> {
   const root = await installationRoot();
   if (!root) return null;
   const userDataDirectory = app.getPath("userData");
@@ -234,7 +294,7 @@ async function attestInstallation(playerKey: string): Promise<unknown | null> {
 
     const challenge = await requestAttestationChallenge(
       playerKey,
-      DEFAULT_RUNTIME_CONFIG.attestationChallengeUrl,
+      runtime.attestationChallengeUrl,
       launcherVersion,
     );
     const baseManifest = await loadBaseManifest({
@@ -291,6 +351,7 @@ async function attestInstallation(playerKey: string): Promise<unknown | null> {
 
 async function snapshot(): Promise<LauncherSnapshot> {
   const configuredRoot = await installationRoot();
+  const runtime = activeRuntime();
   return {
     appVersion: app.getVersion(),
     phase,
@@ -298,9 +359,20 @@ async function snapshot(): Promise<LauncherSnapshot> {
     installationRoot: configuredRoot,
     updates,
     runtime: {
-      environment: DEFAULT_RUNTIME_CONFIG.environment,
-      label: DEFAULT_RUNTIME_CONFIG.label,
-      websiteOrigin: DEFAULT_RUNTIME_CONFIG.websiteOrigin,
+      serverId: runtime.id,
+      environment: runtime.environment,
+      label: runtime.label,
+      websiteOrigin: runtime.websiteOrigin,
+      players: statusOf(runtime.id).players,
+      capacity: statusOf(runtime.id).capacity,
+      servers: runtimeConfigList().map((candidate) => ({
+        id: candidate.id,
+        label: candidate.label,
+        environment: candidate.environment,
+        websiteOrigin: candidate.websiteOrigin,
+        players: statusOf(candidate.id).players,
+        capacity: statusOf(candidate.id).capacity,
+      })),
     },
     playerIdentity: identitySummary(),
     launcherUpdate: launcherUpdate.state,
@@ -319,15 +391,24 @@ async function snapshot(): Promise<LauncherSnapshot> {
     canPlay:
       phase === "ready"
       && configuredRoot !== null
-      && playerIdentity !== null
+      && activeKey() !== null
       && !gameLauncher.isRunning(),
   };
 }
 
+function statusOf(serverId: ServerId): ServerStatus {
+  return serverStatus[serverId] ?? UNKNOWN_SERVER_STATUS;
+}
+
 function identitySummary(): PlayerIdentitySummary {
   return {
-    configured: playerIdentity !== null,
-    playerKey: playerIdentity?.playerKey ?? null,
+    serverId: selectedServerId,
+    role: selectedRole,
+    configured: activeKey() !== null,
+    keys: Object.fromEntries(LAUNCH_PROFILE_IDS.map((profile) => [
+      profile,
+      playerKeys[profile] ?? null,
+    ])) as Record<LaunchProfileId, string | null>,
   };
 }
 
@@ -396,15 +477,59 @@ function registerIpc(): void {
     }),
   );
   ipcMain.handle(
-    IPC_CHANNELS.setPlayerKey,
-    trustedHandler(async (_event, value: unknown): Promise<OperationResult<PlayerIdentitySummary>> => {
-      if (gameLauncher.isRunning() || phase === "launching" || phase === "running") {
-        return { ok: false, error: MAIN_COPY[currentLocale].identityLocked };
+    IPC_CHANNELS.setLaunchProfile,
+    trustedHandler(async (
+      _event,
+      serverId: unknown,
+      role: unknown,
+    ): Promise<OperationResult<LauncherSnapshot>> => {
+      if (isSelectionLocked()) return { ok: false, error: MAIN_COPY[currentLocale].serverLocked };
+      if (!isServerId(serverId)) return { ok: false, error: MAIN_COPY[currentLocale].unknownServer };
+      if (!isPlayerRole(role)) return { ok: false, error: MAIN_COPY[currentLocale].unknownRole };
+      try {
+        // Server and role move together: a half-applied selection would launch
+        // against one infrastructure with the other one's intent.
+        await configStore.setLaunchProfile(serverId, role);
+        selectedServerId = serverId;
+        selectedRole = role;
+        lastErrorRaw = null;
+        await broadcastSnapshot();
+        return { ok: true, value: await snapshot() };
+      } catch (error) {
+        return { ok: false, error: errorMessage(error) };
       }
+    }),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.setPlayerKey,
+    trustedHandler(async (
+      _event,
+      profile: unknown,
+      value: unknown,
+    ): Promise<OperationResult<PlayerIdentitySummary>> => {
+      if (isSelectionLocked()) return { ok: false, error: MAIN_COPY[currentLocale].identityLocked };
+      if (!isLaunchProfileId(profile)) return { ok: false, error: MAIN_COPY[currentLocale].unknownRole };
       try {
         const identity = identityFromPlayerKey(value);
-        await playerKeyStore.save(identity.playerKey);
-        playerIdentity = identity;
+        await playerKeyStore.save(profile, identity.playerKey);
+        playerKeys = { ...playerKeys, [profile]: identity.playerKey };
+        lastErrorRaw = null;
+        await broadcastSnapshot();
+        return { ok: true, value: identitySummary() };
+      } catch (error) {
+        return { ok: false, error: errorMessage(error) };
+      }
+    }),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.clearPlayerKey,
+    trustedHandler(async (_event, profile: unknown): Promise<OperationResult<PlayerIdentitySummary>> => {
+      if (isSelectionLocked()) return { ok: false, error: MAIN_COPY[currentLocale].identityLocked };
+      if (!isLaunchProfileId(profile)) return { ok: false, error: MAIN_COPY[currentLocale].unknownRole };
+      try {
+        await playerKeyStore.clear(profile);
+        const { [profile]: _removed, ...remaining } = playerKeys;
+        playerKeys = remaining;
         lastErrorRaw = null;
         await broadcastSnapshot();
         return { ok: true, value: identitySummary() };
@@ -415,9 +540,11 @@ function registerIpc(): void {
   );
   ipcMain.handle(
     IPC_CHANNELS.copyPlayerKey,
-    trustedHandler(async (): Promise<OperationResult> => {
-      if (!playerIdentity) return { ok: false, error: MAIN_COPY[currentLocale].keyRequired };
-      clipboard.writeText(playerIdentity.playerKey);
+    trustedHandler(async (_event, profile: unknown): Promise<OperationResult> => {
+      if (!isLaunchProfileId(profile)) return { ok: false, error: MAIN_COPY[currentLocale].unknownRole };
+      const playerKey = playerKeys[profile];
+      if (!playerKey) return { ok: false, error: MAIN_COPY[currentLocale].keyRequired };
+      clipboard.writeText(playerKey);
       return { ok: true };
     }),
   );
@@ -604,8 +731,19 @@ function registerIpc(): void {
     IPC_CHANNELS.play,
     trustedHandler(async (): Promise<OperationResult<{ pid: number }>> => {
       if (phase !== "ready") return { ok: false, error: MAIN_COPY[currentLocale].clientNotReady };
-      if (!playerIdentity) return { ok: false, error: MAIN_COPY[currentLocale].keyRequired };
-      const launchCredential = playerIdentity;
+      const selectedKey = activeKey();
+      if (!selectedKey) {
+        return {
+          ok: false,
+          error: selectedRole === "admin"
+            ? MAIN_COPY[currentLocale].adminKeyRequired
+            : MAIN_COPY[currentLocale].keyRequired,
+        };
+      }
+      // Freeze the whole launch contract now: a server switch mid-launch must
+      // never send this credential to the other infrastructure.
+      const launchCredential = identityFromPlayerKey(selectedKey);
+      const launchRuntime = activeRuntime();
       phase = "launching";
       lastErrorRaw = null;
       await broadcastSnapshot();
@@ -621,12 +759,12 @@ function registerIpc(): void {
         const pid = await gameLauncher.launch({
           config: await configStore.load(),
           identity: launchCredential,
-          runtime: DEFAULT_RUNTIME_CONFIG,
+          runtime: launchRuntime,
           logsRoot: join(app.getPath("userData"), "logs"),
           bundledShimPath: resolveBundledShimPath(),
           bundledVivoxProxyPath: resolveBundledVivoxProxyPath(),
           bundledVivoxRuntimePath: resolveBundledVivoxRuntimePath(),
-          attest: () => attestInstallation(launchCredential.playerKey),
+          attest: () => attestInstallation(launchCredential.playerKey, launchRuntime),
           onExit: () => {
             gamePid = null;
             phase = "ready";
@@ -652,13 +790,19 @@ function registerIpc(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.openWebsite,
-    trustedHandler(async (_event, path: string): Promise<OperationResult> => {
+    trustedHandler(async (_event, path: string, serverId?: unknown): Promise<OperationResult> => {
       try {
         if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) {
           throw new Error(MAIN_COPY[currentLocale].unauthorizedLink);
         }
-        const target = new URL(path, WEBSITE_ORIGIN);
-        if (target.origin !== WEBSITE_ORIGIN) throw new Error(MAIN_COPY[currentLocale].unauthorizedLink);
+        // The account page that issues a key belongs to that key's server, so
+        // the caller names it. Unnamed means the selected one, and an unknown
+        // identifier resolves through the registry — never to a free-form host.
+        const websiteOrigin = serverId === undefined
+          ? activeRuntime().websiteOrigin
+          : runtimeConfigFor(serverId).websiteOrigin;
+        const target = new URL(path, websiteOrigin);
+        if (target.origin !== websiteOrigin) throw new Error(MAIN_COPY[currentLocale].unauthorizedLink);
         await shell.openExternal(target.href);
         return { ok: true };
       } catch (error) {
@@ -808,15 +952,15 @@ async function initialize(): Promise<void> {
     },
   );
   playerKeyStore = new PlayerKeyStore(
-    join(app.getPath("userData"), "player-key.v1.json"),
+    join(app.getPath("userData"), "player-keys.v2.json"),
     {
       isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
       encryptString: (value) => safeStorage.encryptString(value),
       decryptString: (value) => safeStorage.decryptString(value),
     },
+    join(app.getPath("userData"), "player-key.v1.json"),
   );
-  const storedPlayerKey = await playerKeyStore.load();
-  playerIdentity = storedPlayerKey ? identityFromPlayerKey(storedPlayerKey) : null;
+  playerKeys = await playerKeyStore.load();
   updateFeed = new UpdateFeedService(app.getPath("userData"));
   assetSync = new AssetSyncService({
     userDataDirectory: app.getPath("userData"),
@@ -830,6 +974,8 @@ async function initialize(): Promise<void> {
   });
   const config = await configStore.load();
   assetSyncEnabled = config.assetSyncEnabled ?? true;
+  selectedServerId = config.serverId ?? DEFAULT_SERVER_ID;
+  selectedRole = config.role ?? DEFAULT_PLAYER_ROLE;
   const assetState = await assetSync.readState().catch(() => null);
   assetSyncPackVersion = assetState?.packVersion ?? null;
   assetSyncLastAt = assetState?.syncedAt ?? null;
@@ -854,6 +1000,8 @@ async function initialize(): Promise<void> {
   await broadcastSnapshot();
   void launcherUpdate.check();
   setInterval(() => void launcherUpdate.check(), LAUNCHER_UPDATE_CHECK_INTERVAL_MS);
+  void refreshServerStatus();
+  setInterval(() => void refreshServerStatus(), SERVER_STATUS_POLL_INTERVAL_MS);
 }
 
 app.on("second-instance", () => {

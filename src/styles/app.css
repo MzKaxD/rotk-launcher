@@ -700,12 +700,146 @@ button:focus-visible {
 
 .launcher-footer__status,
 .launcher-footer__server {
+  position: relative;
+  min-width: 0;
+  border-right: 1px solid var(--line);
+}
+
+.server-select__trigger {
+  width: 100%;
+  height: 100%;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 14px;
   padding: 0 28px;
-  border-right: 1px solid var(--line);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+
+.server-select__trigger:hover:not(:disabled),
+.server-select__trigger[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.server-select__trigger:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.server-select__caret {
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: transform 160ms ease;
+}
+
+.server-select__caret.is-open {
+  transform: rotate(180deg);
+}
+
+/* Opens upward: the footer is the last row of the window. */
+.server-select__menu {
+  position: absolute;
+  z-index: 45;
+  inset: auto 0 100% 0;
+  margin-bottom: 1px;
+  padding: 6px 0;
+  border: 1px solid rgba(238, 236, 228, 0.17);
+  background: #131312;
+  box-shadow: 0 -18px 44px rgba(0, 0, 0, 0.5);
+}
+
+.server-select__group + .server-select__group {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+
+.server-select__group > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px 6px;
+}
+
+.server-select__group > header strong {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.server-select__group > header i {
+  padding: 3px 6px;
+  border: 1px solid rgba(134, 169, 110, 0.42);
+  color: #a7c393;
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+}
+
+.server-select__group > header i.is-dev {
+  border-color: rgba(216, 162, 68, 0.38);
+  color: #d8a244;
+}
+
+.server-select__group button {
+  width: 100%;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--paper-dim);
+  text-align: left;
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.server-select__group button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--paper);
+}
+
+.server-select__group button.is-selected {
+  box-shadow: inset 2px 0 var(--signal);
+  color: var(--paper);
+}
+
+.server-select__group button svg {
+  color: var(--signal);
+}
+
+.server-select__group button svg.is-hidden {
+  visibility: hidden;
+}
+
+.server-select__group button span {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+
+.server-select__group button em {
+  color: #a7c393;
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.12em;
+}
+
+.server-select__group button em.is-missing {
+  color: #6d6c67;
 }
 
 .status-pulse {
@@ -723,7 +857,7 @@ button:focus-visible {
 }
 
 .launcher-footer__status > div,
-.launcher-footer__server > div {
+.server-select__trigger > div {
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -731,7 +865,7 @@ button:focus-visible {
 }
 
 .launcher-footer__status strong,
-.launcher-footer__server strong {
+.server-select__trigger strong {
   font-family: "Barlow Condensed", sans-serif;
   font-weight: 600;
   font-size: 16px;
@@ -750,19 +884,20 @@ button:focus-visible {
   white-space: nowrap;
 }
 
-.launcher-footer__server > svg {
+.server-select__trigger > svg:first-child {
+  flex: 0 0 auto;
   color: var(--muted);
 }
 
-.launcher-footer__server span {
+.server-select__trigger span {
   color: var(--muted);
   font-family: "Barlow Condensed", sans-serif;
   font-size: 9px;
   letter-spacing: 0.14em;
 }
 
-.launcher-footer__server i {
-  margin-left: auto;
+.server-select__trigger i {
+  flex: 0 0 auto;
   padding: 5px 7px;
   border: 1px solid rgba(134, 169, 110, 0.42);
   color: #a7c393;
@@ -773,9 +908,68 @@ button:focus-visible {
   letter-spacing: 0.14em;
 }
 
-.launcher-footer__server i.is-dev {
+.server-population {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--paper-dim);
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.server-population em {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4d4c48;
+}
+
+.server-population.is-live em {
+  background: #86a96e;
+  box-shadow: 0 0 0 3px rgba(134, 169, 110, 0.16);
+}
+
+.server-population.is-unknown {
+  color: #6d6c67;
+}
+
+.server-population small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+}
+
+/* The population is the first item after the label, so it carries the push. */
+.server-select__trigger > div + .server-population {
+  margin-left: auto;
+  margin-right: 4px;
+}
+
+.server-select__group > header .server-population {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.server-select__group > header .server-population small {
+  font-size: 8px;
+}
+
+.server-select__trigger i.is-dev {
   border-color: rgba(216, 162, 68, 0.38);
   color: #d8a244;
+}
+
+.server-select__trigger i.is-admin {
+  border-color: rgba(230, 64, 52, 0.5);
+  color: #ef746a;
+}
+
+.server-select__trigger i + i {
+  margin-left: 6px;
 }
 
 .footer-tools {
@@ -1038,6 +1232,109 @@ button:focus-visible {
   line-height: 1.62;
 }
 
+.identity-form__hint {
+  margin: 9px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.identity-extra {
+  margin-top: 26px;
+  border-top: 1px solid var(--line);
+}
+
+.identity-extra__toggle {
+  width: 100%;
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--paper-dim);
+  text-align: left;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.identity-extra__toggle:hover {
+  color: var(--paper);
+}
+
+.identity-extra__toggle svg {
+  color: var(--signal);
+  transition: transform 160ms ease;
+}
+
+.identity-extra__toggle svg.is-open {
+  transform: rotate(180deg);
+}
+
+.identity-extra__toggle strong {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+}
+
+.identity-extra__toggle em {
+  color: var(--muted);
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.12em;
+}
+
+.identity-extra__body > p {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.identity-extra__server {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.identity-extra__server > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.identity-extra__server > header strong {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.identity-extra__server > header button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--signal);
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  cursor: pointer;
+}
+
+.identity-extra__server > header button:hover {
+  color: #f26f64;
+}
+
+
 .identity-session-note {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
@@ -1105,7 +1402,10 @@ button:focus-visible {
 }
 
 .identity-form > label {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 8px;
   color: var(--muted);
   font-family: "Barlow Condensed", sans-serif;
@@ -1114,13 +1414,24 @@ button:focus-visible {
   letter-spacing: 0.14em;
 }
 
+.identity-form > label i {
+  color: #a7c393;
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.12em;
+}
+
+.identity-form > label i.is-missing {
+  color: #6d6c67;
+}
+
 .identity-key-field {
   height: 54px;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto 38px 38px;
+  grid-template-columns: 22px minmax(0, 1fr) auto 34px 34px 34px;
   align-items: center;
-  gap: 7px;
-  padding-left: 15px;
+  gap: 6px;
+  padding-left: 14px;
   border: 1px solid var(--line);
   background: #0b0b0a;
   transition: border-color 150ms ease, box-shadow 150ms ease;
