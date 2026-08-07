@@ -119,6 +119,8 @@ export default function App() {
           setSetupOpen(false);
           setIdentityOpen(true);
         }}
+        onSelectLaunchProfile={(serverId, role) =>
+          void perform(() => window.rotk.setLaunchProfile(serverId, role))}
       />
       <PlayerIdentityPanel
         snapshot={snapshot}

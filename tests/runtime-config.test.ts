@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { gameLauncherInternals } from "../electron/services/game-launcher.js";
-import { DEFAULT_RUNTIME_CONFIG, serverList } from "../electron/services/runtime-config.js";
+import {
+  DEFAULT_RUNTIME_CONFIG,
+  RUNTIME_CONFIGS,
+  runtimeConfigFor,
+  runtimeConfigList,
+  serverList,
+} from "../electron/services/runtime-config.js";
 
 describe("public ROTK runtime", () => {
   it("targets the GAME 2 gateway and every public login listener", () => {
@@ -15,6 +21,57 @@ describe("public ROTK runtime", () => {
     expect(serverList(DEFAULT_RUNTIME_CONFIG)).toBe(
       "162.19.94.95:20042;162.19.94.95:20043;162.19.94.95:20044;162.19.94.95:20045",
     );
+  });
+
+  it("defaults to GAME 2 and never to the test infrastructure", () => {
+    expect(DEFAULT_RUNTIME_CONFIG.id).toBe("game2");
+    expect(runtimeConfigFor(undefined)).toBe(RUNTIME_CONFIGS.game2);
+    expect(runtimeConfigFor("test")).toBe(RUNTIME_CONFIGS.test);
+    // An identifier the renderer invented resolves to the default, never to an
+    // arbitrary endpoint set.
+    expect(runtimeConfigFor("game3")).toBe(RUNTIME_CONFIGS.game2);
+    expect(runtimeConfigList().map((runtime) => runtime.id)).toEqual(["game2", "test"]);
+  });
+
+  it("gives the test server its own account service, gateway and login listeners", () => {
+    const test = RUNTIME_CONFIGS.test;
+
+    expect(test.environment).toBe("development");
+    expect(test.gatewayOrigin).toBe("http://51.255.160.224:8080");
+    expect(test.websiteOrigin).toBe("https://test.rotk.app");
+    expect(test.launchTicketUrl).toBe("https://test.rotk.app/api/launcher/ticket");
+    expect(test.attestationChallengeUrl).toBe(
+      "https://test.rotk.app/api/launcher/attestation/challenge",
+    );
+    expect(serverList(test)).toBe(
+      "51.255.160.224:20042;51.255.160.224:20043;51.255.160.224:20044;51.255.160.224:20045",
+    );
+  });
+
+  it("never lets one server's endpoints leak into the other", () => {
+    const game2 = JSON.stringify(RUNTIME_CONFIGS.game2);
+    const test = JSON.stringify(RUNTIME_CONFIGS.test);
+
+    expect(game2).not.toContain("51.255.160.224");
+    expect(game2).not.toContain("test.rotk.app");
+    expect(test).not.toContain("162.19.94.95");
+    expect(test).not.toContain("https://rotk.app");
+  });
+
+  it("sends the test launch to the test login listeners and account service", () => {
+    const args = gameLauncherInternals.buildLaunchArguments(
+      "T".repeat(43),
+      RUNTIME_CONFIGS.test,
+      "C:\\ROTK\\logs",
+      "install-1",
+      "http://127.0.0.1:49152/rest/auth/session/create",
+    );
+
+    expect(args).toContain(
+      "server=51.255.160.224:20042;51.255.160.224:20043;51.255.160.224:20044;51.255.160.224:20045",
+    );
+    expect(args).toContain("CommandQueue:motd_uri=http://51.255.160.224:8080/");
+    expect(args.join(" ")).not.toContain("162.19.94.95");
   });
 
   it("passes only the short ticket and bounded GAME 2 endpoints to H1Z1", () => {

@@ -73,15 +73,37 @@ export interface AssetSyncSummary {
   warning: AssetSyncWarning | null;
 }
 
+export interface ServerOption {
+  id: ServerId;
+  label: string;
+  environment: "development" | "production";
+  websiteOrigin: string;
+  /** Live population. Null players means the server could not be reached. */
+  players: number | null;
+  capacity: number | null;
+}
+
 export interface RuntimeSummary {
+  /** Server the next launch targets. */
+  serverId: ServerId;
   environment: "development" | "production";
   label: string;
   websiteOrigin: string;
+  /** Live population of the selected server; null while unknown. */
+  players: number | null;
+  capacity: number | null;
+  /** Every selectable server, so the renderer never invents an identifier. */
+  servers: ServerOption[];
 }
 
 export interface PlayerIdentitySummary {
+  serverId: ServerId;
+  /** Role the next launch runs under. */
+  role: PlayerRole;
+  /** A key is stored for the active server and role. */
   configured: boolean;
-  playerKey: string | null;
+  /** Every server/role slot. Null when the slot holds no key yet. */
+  keys: Record<LaunchProfileId, string | null>;
 }
 
 export type LauncherUpdateStatus =
@@ -138,15 +160,19 @@ export interface OperationResult<T = undefined> {
 export interface RotkLauncherApi {
   getSnapshot(): Promise<LauncherSnapshot>;
   setLocale(locale: AppLocale): Promise<void>;
-  setPlayerKey(playerKey: string): Promise<OperationResult<PlayerIdentitySummary>>;
-  copyPlayerKey(): Promise<OperationResult>;
+  /** Selects the server and the role a launch runs under, in one operation. */
+  setLaunchProfile(serverId: ServerId, role: PlayerRole): Promise<OperationResult<LauncherSnapshot>>;
+  setPlayerKey(profile: LaunchProfileId, playerKey: string): Promise<OperationResult<PlayerIdentitySummary>>;
+  clearPlayerKey(profile: LaunchProfileId): Promise<OperationResult<PlayerIdentitySummary>>;
+  copyPlayerKey(profile: LaunchProfileId): Promise<OperationResult>;
   detectSource(): Promise<OperationResult<{ sourceRoot: string | null }>>;
   selectSource(): Promise<OperationResult<{ sourceRoot: string }>>;
   selectDestination(): Promise<OperationResult<{ destinationRoot: string }>>;
   install(): Promise<OperationResult<{ installationRoot: string }>>;
   cancelInstall(): Promise<void>;
   play(): Promise<OperationResult<{ pid: number }>>;
-  openWebsite(path: string): Promise<OperationResult>;
+  /** Opens a ROTK site path; `serverId` picks which site, defaulting to the selected one. */
+  openWebsite(path: string, serverId?: ServerId): Promise<OperationResult>;
   checkLauncherUpdate(): Promise<void>;
   downloadLauncherUpdate(): Promise<OperationResult>;
   installLauncherUpdate(): Promise<OperationResult>;
@@ -161,7 +187,9 @@ export interface RotkLauncherApi {
 export const IPC_CHANNELS = {
   getSnapshot: "launcher:get-snapshot",
   setLocale: "launcher:set-locale",
+  setLaunchProfile: "launcher:set-launch-profile",
   setPlayerKey: "launcher:set-player-key",
+  clearPlayerKey: "launcher:clear-player-key",
   copyPlayerKey: "launcher:copy-player-key",
   detectSource: "launcher:detect-source",
   selectSource: "launcher:select-source",
@@ -181,3 +209,4 @@ export const IPC_CHANNELS = {
   snapshotChanged: "launcher:snapshot-changed",
 } as const;
 import type { AppLocale } from "./locale.js";
+import type { LaunchProfileId, PlayerRole, ServerId } from "./launch-profile.js";

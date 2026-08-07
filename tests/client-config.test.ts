@@ -6,6 +6,7 @@ import {
 import type { RuntimeConfig } from "../electron/services/runtime-config.js";
 
 const runtime: RuntimeConfig = {
+  id: "game2",
   environment: "production",
   label: "ROTK Europe",
   gatewayOrigin: "https://gateway.rotk.app",
