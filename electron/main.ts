@@ -49,7 +49,11 @@ import {
 } from "./constants.js";
 import { ConfigStore } from "./services/config-store.js";
 import { adoptExistingClient, installClient } from "./services/installer.js";
-import { GameLauncher, validateInstalledClient } from "./services/game-launcher.js";
+import {
+  GameLauncher,
+  validateInstalledClient,
+  type AttestationOutcome,
+} from "./services/game-launcher.js";
 import { classifyClientSource, validateInstallDestination } from "./services/path-policy.js";
 import { locateSteamClient } from "./services/steam-locator.js";
 import {
@@ -78,6 +82,7 @@ import {
   readLauncherOverrides,
 } from "./services/base-manifest.js";
 import {
+  AttestationUnavailableError,
   buildAttestationResult,
   measureInstallation,
   requestAttestationChallenge,
@@ -283,14 +288,14 @@ async function runAssetSync(mode: "sync" | "verify", soft: boolean): Promise<Ope
 async function attestInstallation(
   playerKey: string,
   runtime: RuntimeConfig,
-): Promise<unknown | null> {
+): Promise<AttestationOutcome> {
   const root = await installationRoot();
-  if (!root) return null;
+  if (!root) return { status: "not-applicable" };
   const userDataDirectory = app.getPath("userData");
   const launcherVersion = app.getVersion();
   try {
     const marker = await readInstallationMarker(root);
-    if (!marker) return null;
+    if (!marker) return { status: "not-applicable" };
 
     const challenge = await requestAttestationChallenge(
       playerKey,
@@ -337,15 +342,22 @@ async function attestInstallation(
         `Integrity attestation found ${measurement.deviations.length} deviation(s); reporting them.`,
       );
     }
-    return buildAttestationResult(challenge, measurement, launcherVersion);
+    return { status: "attested", block: buildAttestationResult(challenge, measurement, launcherVersion) };
   } catch (error) {
     attestationProgress = null;
-    // A challenge or manifest we cannot obtain is reported as "no attestation";
-    // the backend applies its enforcement policy to that.
-    console.warn("Integrity attestation could not complete", {
-      message: error instanceof Error ? error.message : "unknown",
-    });
-    return null;
+    // No policy published / attestation unconfigured: it does not apply, and
+    // the launch proceeds silently exactly as before enforcement existed.
+    if (error instanceof AttestationUnavailableError && error.notApplicable) {
+      return { status: "not-applicable" };
+    }
+    // A challenge or manifest we could not obtain, or files we could not read:
+    // attestation should have run and did not. Carry the reason so a launch the
+    // backend then blocks can say why, instead of blaming the launcher version.
+    const reason = error instanceof Error && error.message
+      ? error.message.replace(/[.]?\s*$/, ".")
+      : "the integrity service could not be reached.";
+    console.warn("Integrity attestation could not complete", { message: reason });
+    return { status: "unavailable", reason };
   }
 }
 
