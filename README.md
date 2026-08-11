@@ -134,7 +134,19 @@ Le workflow de release reconstruit le shim depuis sa source C, exécute les test
 
 La signature Authenticode est optionnelle. Si l’environnement GitHub `release` contient les secrets `WINDOWS_CERTIFICATE_BASE64` et `WINDOWS_CERTIFICATE_PASSWORD` ainsi que la variable `WINDOWS_PUBLISHER_SUBJECT` (le sujet Authenticode exact du certificat), la release est signée et le workflow échoue si l’installateur, l’exécutable principal ou le shim n’a pas une signature valide, horodatée et cohérente avec l’éditeur attendu. Les secrets ne sont exposés qu’aux étapes de détection et de packaging.
 
-Sans certificat configuré, la release est publiée non signée : le résumé du run l’indique explicitement, et les téléchargements se vérifient via `SHA256SUMS.txt` et l’attestation de provenance GitHub. Windows SmartScreen affichera alors un avertissement « Éditeur inconnu » à l’installation. Un certificat public délivré après validation de l’identité de l’éditeur est nécessaire pour le retirer : un certificat auto-signé n’y change rien. Pour un projet open source, [SignPath Foundation](https://signpath.org/) offre une signature gratuite après candidature.
+Sans certificat configuré, la release est publiée non signée : le résumé du run l’indique explicitement, et les téléchargements se vérifient via `SHA256SUMS.txt` et l’attestation de provenance GitHub. Windows SmartScreen affichera alors un avertissement « Éditeur inconnu » à l’installation. Un certificat public délivré après validation de l’identité de l’éditeur est nécessaire pour le retirer : un certificat auto-signé n’y change rien.
+
+## Signature de code
+
+Le projet s’appuie sur [SignPath Foundation](https://signpath.org/) pour la signature Authenticode de ses releases Windows.
+
+> Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+Conformément aux exigences de SignPath Foundation :
+
+- seuls les artefacts construits par le workflow de release GitHub Actions de ce dépôt, depuis `main`, sont soumis à la signature ;
+- le launcher ne transmet aucune donnée personnelle à des tiers ; il communique uniquement avec les services `rotk.app` décrits dans ce document (voir la [politique de confidentialité](https://rotk.app/privacy)) ;
+- les certificats sont délivrés au nom de SignPath Foundation et peuvent être révoqués en cas de violation de ses conditions.
 
 ## Contribuer et signaler une faille
 
