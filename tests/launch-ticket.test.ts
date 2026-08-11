@@ -98,6 +98,31 @@ describe("ROTK launch ticket client", () => {
       .rejects.toThrow("This ROTK account is not ready to play yet");
   });
 
+  it("blames verification, not the launcher version, when attestation could not run", async () => {
+    // Enforcement answers a missing attestation with launcher_update_required.
+    // When the launcher already knows it could not verify (service unreachable),
+    // the player must be pointed at their connection, not a phantom update.
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ error: "launcher_update_required", failureCode: "missing_attestation" }, 403),
+    ) as typeof fetch;
+
+    await expect(createLaunchTicket(launcherKey, endpoint, {
+      fetchImpl,
+      attestationUnavailableReason: "the ROTK integrity service could not be reached.",
+    })).rejects.toThrow(/could not verify your game files.*could not be reached/s);
+  });
+
+  it("keeps the update message when attestation actually ran and the launcher is old", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ error: "launcher_update_required", failureCode: "launcher_update_required" }, 403),
+    ) as typeof fetch;
+
+    // No unavailable reason: the block was sent and the server judged the
+    // version too old, so the update message is the right one.
+    await expect(createLaunchTicket(launcherKey, endpoint, { fetchImpl }))
+      .rejects.toThrow("This launcher version is too old");
+  });
+
   it("rejects malformed identity data even after HTTP 200", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({
       ...validResponse,

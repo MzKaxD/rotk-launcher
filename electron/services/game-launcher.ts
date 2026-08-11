@@ -17,6 +17,21 @@ import {
 } from "./launch-ticket.js";
 import { deployVivoxCompatibility } from "./vivox-client.js";
 
+/**
+ * What one attestation attempt produced.
+ * - `attested`: a block to carry with the ticket request.
+ * - `not-applicable`: the server has no attestation to run (no policy yet, or
+ *   unconfigured). Launch as usual — the ticket route stays the authority.
+ * - `unavailable`: attestation should have run but could not (service
+ *   unreachable, files unreadable, malformed response). No block is sent, and
+ *   if enforcement then blocks the launch, the reason explains why instead of
+ *   the ticket route's opaque "update the launcher".
+ */
+export type AttestationOutcome =
+  | { readonly status: "attested"; readonly block: unknown }
+  | { readonly status: "not-applicable" }
+  | { readonly status: "unavailable"; readonly reason: string };
+
 export interface LaunchRequest {
   config: LauncherConfig;
   identity: PlayerIdentity;
@@ -26,13 +41,28 @@ export interface LaunchRequest {
   bundledVivoxProxyPath: string;
   bundledVivoxRuntimePath: string;
   /**
-   * Integrity attestation hook. Resolves to the block the ticket request
-   * carries, or null when attestation cannot run (no policy published yet, or
-   * the launcher is configured without it). The backend decides what an absent
-   * attestation means — the launcher never self-exempts.
+   * Integrity attestation hook. The launcher never self-exempts: it reports
+   * what it observed and lets the backend decide what an absent attestation
+   * means.
    */
-  attest?: () => Promise<unknown | null>;
+  attest?: () => Promise<AttestationOutcome>;
   onExit(exitCode: number | null): void;
+}
+
+/**
+ * Turn an attestation outcome into the ticket request's attestation options. A
+ * clean measurement carries its block; a not-applicable one carries nothing and
+ * says nothing; an unavailable one carries nothing but records why, so a launch
+ * the server then refuses under enforcement can name the real cause.
+ */
+function ticketAttestationOptions(
+  outcome: AttestationOutcome,
+): { attestation?: unknown; attestationUnavailableReason?: string } {
+  if (outcome.status === "attested") return { attestation: outcome.block };
+  if (outcome.status === "unavailable") {
+    return { attestationUnavailableReason: outcome.reason };
+  }
+  return {};
 }
 
 async function validateMarker(installation: InstalledClientConfig): Promise<void> {
@@ -183,14 +213,16 @@ export class GameLauncher {
 
     // Integrity attestation runs before the ticket exists: the whole point is
     // that a tampered installation never obtains one.
-    const attestation = request.attest ? await request.attest() : null;
+    const outcome = request.attest
+      ? await request.attest()
+      : { status: "not-applicable" } as const;
 
     // The durable website key reaches only the HTTPS account service. H1Z1
     // receives a short ticket and the Steam identity authenticated by it.
     let launchIdentity = await createLaunchTicket(
       request.identity.playerKey,
       request.runtime.launchTicketUrl,
-      { attestation },
+      ticketAttestationOptions(outcome),
     );
     let sessionGateway = await startLocalSessionGateway(launchIdentity.ticket);
 
@@ -211,11 +243,13 @@ export class GameLauncher {
         await sessionGateway.close().catch(() => undefined);
         // A fresh ticket needs a fresh attestation: the first challenge was
         // consumed by the request above and is not replayable.
-        const refreshedAttestation = request.attest ? await request.attest() : null;
+        const refreshed = request.attest
+          ? await request.attest()
+          : { status: "not-applicable" } as const;
         launchIdentity = await createLaunchTicket(
           request.identity.playerKey,
           request.runtime.launchTicketUrl,
-          { attestation: refreshedAttestation },
+          ticketAttestationOptions(refreshed),
         );
         sessionGateway = await startLocalSessionGateway(launchIdentity.ticket);
         await prepareClient(
