@@ -57,7 +57,7 @@
     "productName": "ROTK Launcher",
     "artifactName": "ROTK-Launcher-${version}-${arch}.${ext}",
     "asar": true,
-    "forceCodeSigning": true,
+    "forceCodeSigning": false,
     "directories": {
       "output": "release"
     },
@@ -105,7 +105,7 @@
           ]
         }
       ],
-      "verifyUpdateCodeSignature": true
+      "verifyUpdateCodeSignature": false
     },
     "nsis": {
       "oneClick": false,

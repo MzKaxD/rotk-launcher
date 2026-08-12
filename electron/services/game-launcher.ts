@@ -46,23 +46,32 @@ export interface LaunchRequest {
    * means.
    */
   attest?: () => Promise<AttestationOutcome>;
+  /** This launcher's version, sent so the server's update gate can act. */
+  launcherVersion?: string;
+  /** Raw hardware fingerprint; the server hashes it (see machine-identity.ts). */
+  hwid?: Record<string, string>;
   onExit(exitCode: number | null): void;
 }
 
 /**
- * Turn an attestation outcome into the ticket request's attestation options. A
- * clean measurement carries its block; a not-applicable one carries nothing and
- * says nothing; an unavailable one carries nothing but records why, so a launch
- * the server then refuses under enforcement can name the real cause.
+ * Turn an attestation outcome plus the launcher's version and fingerprint into
+ * the ticket request options. A clean measurement carries its block; a
+ * not-applicable one carries nothing; an unavailable one records why so an
+ * enforced refusal can name the real cause. The version and HWID ride along
+ * regardless, so the update gate and HWID capture work even with no attestation.
  */
-function ticketAttestationOptions(
+function ticketRequestOptions(
+  request: LaunchRequest,
   outcome: AttestationOutcome,
-): { attestation?: unknown; attestationUnavailableReason?: string } {
-  if (outcome.status === "attested") return { attestation: outcome.block };
+): { attestation?: unknown; attestationUnavailableReason?: string; launcherVersion?: string; hwid?: Record<string, string> } {
+  const base: { launcherVersion?: string; hwid?: Record<string, string> } = {};
+  if (request.launcherVersion) base.launcherVersion = request.launcherVersion;
+  if (request.hwid && Object.keys(request.hwid).length > 0) base.hwid = request.hwid;
+  if (outcome.status === "attested") return { ...base, attestation: outcome.block };
   if (outcome.status === "unavailable") {
-    return { attestationUnavailableReason: outcome.reason };
+    return { ...base, attestationUnavailableReason: outcome.reason };
   }
-  return {};
+  return base;
 }
 
 async function validateMarker(installation: InstalledClientConfig): Promise<void> {
@@ -222,7 +231,7 @@ export class GameLauncher {
     let launchIdentity = await createLaunchTicket(
       request.identity.playerKey,
       request.runtime.launchTicketUrl,
-      ticketAttestationOptions(outcome),
+      ticketRequestOptions(request, outcome),
     );
     let sessionGateway = await startLocalSessionGateway(launchIdentity.ticket);
 
@@ -249,7 +258,7 @@ export class GameLauncher {
         launchIdentity = await createLaunchTicket(
           request.identity.playerKey,
           request.runtime.launchTicketUrl,
-          ticketAttestationOptions(refreshed),
+          ticketRequestOptions(request, refreshed),
         );
         sessionGateway = await startLocalSessionGateway(launchIdentity.ticket);
         await prepareClient(
