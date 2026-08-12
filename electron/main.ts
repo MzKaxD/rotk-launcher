@@ -49,7 +49,13 @@ import {
 } from "./constants.js";
 import { ConfigStore } from "./services/config-store.js";
 import { adoptExistingClient, installClient } from "./services/installer.js";
-import { GameLauncher, validateInstalledClient } from "./services/game-launcher.js";
+import {
+  GameLauncher,
+  validateInstalledClient,
+  type AttestationOutcome,
+} from "./services/game-launcher.js";
+import { collectHwid } from "./services/machine-identity.js";
+import { collectTpmProof } from "./services/tpm-identity.js";
 import { classifyClientSource, validateInstallDestination } from "./services/path-policy.js";
 import { locateSteamClient } from "./services/steam-locator.js";
 import {
@@ -78,6 +84,7 @@ import {
   readLauncherOverrides,
 } from "./services/base-manifest.js";
 import {
+  AttestationUnavailableError,
   buildAttestationResult,
   measureInstallation,
   requestAttestationChallenge,
@@ -122,6 +129,9 @@ let destinationRecommended = false;
 let progress: LauncherSnapshot["progress"] = null;
 let updates: LauncherSnapshot["updates"] = [];
 let lastErrorRaw: string | null = null;
+// Set when the server refuses a launch for launcher_update_required: the update
+// becomes mandatory (Play is blocked) until a newer launcher is installed.
+let updateRequired = false;
 let gamePid: number | null = null;
 let currentLocale: AppLocale = "en";
 let playerKeys: PlayerKeySet = {};
@@ -283,14 +293,14 @@ async function runAssetSync(mode: "sync" | "verify", soft: boolean): Promise<Ope
 async function attestInstallation(
   playerKey: string,
   runtime: RuntimeConfig,
-): Promise<unknown | null> {
+): Promise<AttestationOutcome> {
   const root = await installationRoot();
-  if (!root) return null;
+  if (!root) return { status: "not-applicable" };
   const userDataDirectory = app.getPath("userData");
   const launcherVersion = app.getVersion();
   try {
     const marker = await readInstallationMarker(root);
-    if (!marker) return null;
+    if (!marker) return { status: "not-applicable" };
 
     const challenge = await requestAttestationChallenge(
       playerKey,
@@ -337,15 +347,31 @@ async function attestInstallation(
         `Integrity attestation found ${measurement.deviations.length} deviation(s); reporting them.`,
       );
     }
-    return buildAttestationResult(challenge, measurement, launcherVersion);
+    // Sign the challengeId with the TPM-backed key when the machine has one;
+    // null when it does not, and the launch proceeds without it. Signing the
+    // (single-use) challengeId rather than the nonce lets the server verify with
+    // a value it already holds, while the single-use challenge stops replay. The
+    // server decides (behind its own flag) whether a missing proof is acceptable.
+    const tpmProof = await collectTpmProof(challenge.challengeId).catch(() => null);
+    return {
+      status: "attested",
+      block: buildAttestationResult(challenge, measurement, launcherVersion, tpmProof),
+    };
   } catch (error) {
     attestationProgress = null;
-    // A challenge or manifest we cannot obtain is reported as "no attestation";
-    // the backend applies its enforcement policy to that.
-    console.warn("Integrity attestation could not complete", {
-      message: error instanceof Error ? error.message : "unknown",
-    });
-    return null;
+    // No policy published / attestation unconfigured: it does not apply, and
+    // the launch proceeds silently exactly as before enforcement existed.
+    if (error instanceof AttestationUnavailableError && error.notApplicable) {
+      return { status: "not-applicable" };
+    }
+    // A challenge or manifest we could not obtain, or files we could not read:
+    // attestation should have run and did not. Carry the reason so a launch the
+    // backend then blocks can say why, instead of blaming the launcher version.
+    const reason = error instanceof Error && error.message
+      ? error.message.replace(/[.]?\s*$/, ".")
+      : "the integrity service could not be reached.";
+    console.warn("Integrity attestation could not complete", { message: reason });
+    return { status: "unavailable", reason };
   }
 }
 
@@ -388,11 +414,14 @@ async function snapshot(): Promise<LauncherSnapshot> {
     progress,
     error: lastErrorRaw ? localizeServiceError(lastErrorRaw, currentLocale) : null,
     gamePid,
+    updateRequired,
     canPlay:
       phase === "ready"
       && configuredRoot !== null
       && activeKey() !== null
-      && !gameLauncher.isRunning(),
+      && !gameLauncher.isRunning()
+      // A mandatory update blocks Play until a newer launcher is installed.
+      && !updateRequired,
   };
 }
 
@@ -765,6 +794,10 @@ function registerIpc(): void {
           bundledVivoxProxyPath: resolveBundledVivoxProxyPath(),
           bundledVivoxRuntimePath: resolveBundledVivoxRuntimePath(),
           attest: () => attestInstallation(launchCredential.playerKey, launchRuntime),
+          launcherVersion: app.getVersion(),
+          // Best-effort hardware fingerprint; the server hashes it. A failure
+          // must never block a launch, so it degrades to no HWID signal.
+          hwid: await collectHwid().catch(() => ({})),
           onExit: () => {
             gamePid = null;
             phase = "ready";
@@ -778,8 +811,15 @@ function registerIpc(): void {
         return { ok: true, value: { pid } };
       } catch (error) {
         const result = operationError<{ pid: number }>(error);
-        // Keep Play retryable after a transient launch failure while retaining
-        // the concrete error in the snapshot.
+        // A version refusal makes the update mandatory: block Play, and CHECK
+        // for the update (metadata only — autoDownload is false) so the modal
+        // can show that a new version exists. Nothing is downloaded here; the
+        // installer is fetched only when the player consents via the update
+        // action. Any other failure stays retryable, so it must not set the flag.
+        if ((error as { code?: string })?.code === "launcher_update_required") {
+          updateRequired = true;
+          void launcherUpdate.check().catch(() => undefined);
+        }
         phase = "ready";
         await broadcastSnapshot();
         if (quitWhenGameExits && !mainWindow) app.quit();

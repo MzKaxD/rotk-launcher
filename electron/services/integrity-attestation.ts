@@ -73,6 +73,12 @@ export interface AttestationResult {
   evidence: string;
   claim: AttestationClaim;
   deviations: ObservedDeviation[];
+  /**
+   * Optional TPM proof over the challenge nonce (see tpm-identity.ts). Rides in
+   * the attestation block because that is what already carries the challengeId
+   * the server needs to bind it; absent when the machine has no usable TPM.
+   */
+  tpmProof?: { publicKey: string; signature: string; algo: string };
 }
 
 interface CacheEntry {
@@ -83,8 +89,25 @@ interface CacheEntry {
 
 type CacheMap = Map<string, CacheEntry>;
 
+/**
+ * A challenge could not be turned into a measurement. `notApplicable` marks the
+ * case where the server has no attestation to run — no policy published, or the
+ * feature unconfigured — which is a launch-as-usual, not a failure to surface.
+ * Everything else (unreachable service, rejected key, malformed response) is a
+ * genuine "could not verify", carried to the ticket flow so a blocked launch
+ * can say why instead of blaming the launcher version.
+ */
+export class AttestationUnavailableError extends Error {
+  readonly notApplicable: boolean;
+  constructor(message: string, notApplicable = false) {
+    super(message);
+    this.name = "AttestationUnavailableError";
+    this.notApplicable = notApplicable;
+  }
+}
+
 function attestationError(message: string): Error {
-  return new Error(message);
+  return new AttestationUnavailableError(message);
 }
 
 /** Rejects any endpoint that is not a bare HTTPS path, like launch-ticket.ts. */
@@ -188,14 +211,29 @@ export async function requestAttestationChallenge(
       throw attestationError("Invalid response from the ROTK integrity service");
     }
     if (!response.ok) {
-      const code = payload && typeof payload === "object"
+      // Two error shapes: the legacy flat `error: "code"` string, and the
+      // self-hosted `error: { code, message }` object. Read both.
+      const rawError = payload && typeof payload === "object"
         ? (payload as Record<string, unknown>).error
         : null;
+      const code = typeof rawError === "string"
+        ? rawError
+        : rawError && typeof rawError === "object"
+          ? (rawError as Record<string, unknown>).code
+          : null;
       if (code === "invalid_credentials") throw attestationError("The ROTK launcher key was rejected");
-      if (code === "policy_unavailable") {
-        throw attestationError("ROTK has no published integrity policy yet. Try again later.");
+      // No policy published, or attestation unconfigured on the server: the
+      // self-hosted route answers failed-precondition, the legacy one
+      // policy_unavailable. Neither is the player's problem — attestation
+      // simply does not apply, so the launch proceeds and the ticket route
+      // remains the single authority on whether it may.
+      if (code === "policy_unavailable" || code === "failed-precondition") {
+        throw new AttestationUnavailableError(
+          "ROTK has no published integrity policy yet.",
+          true,
+        );
       }
-      if (code === "rate_limited") {
+      if (code === "rate_limited" || code === "resource-exhausted") {
         throw attestationError("Too many ROTK integrity checks. Wait a moment and try again");
       }
       throw attestationError("The ROTK integrity service is temporarily unavailable");
@@ -390,6 +428,7 @@ export function buildAttestationResult(
   challenge: AttestationChallenge,
   measurement: Measurement,
   launcherVersion: string,
+  tpmProof?: { publicKey: string; signature: string; algo: string } | null,
 ): AttestationResult {
   return {
     challengeId: challenge.challengeId,
@@ -403,6 +442,7 @@ export function buildAttestationResult(
       totalBytes: measurement.totalBytes,
     },
     deviations: measurement.deviations,
+    ...(tpmProof ? { tpmProof } : {}),
   };
 }
 
