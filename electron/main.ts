@@ -801,9 +801,11 @@ function registerIpc(): void {
         return { ok: true, value: { pid } };
       } catch (error) {
         const result = operationError<{ pid: number }>(error);
-        // A version refusal makes the update mandatory: block Play and kick the
-        // updater so the newer launcher downloads. Any other failure stays
-        // retryable, so it must not set the flag.
+        // A version refusal makes the update mandatory: block Play, and CHECK
+        // for the update (metadata only — autoDownload is false) so the modal
+        // can show that a new version exists. Nothing is downloaded here; the
+        // installer is fetched only when the player consents via the update
+        // action. Any other failure stays retryable, so it must not set the flag.
         if ((error as { code?: string })?.code === "launcher_update_required") {
           updateRequired = true;
           void launcherUpdate.check().catch(() => undefined);
