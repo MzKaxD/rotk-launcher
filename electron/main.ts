@@ -55,6 +55,7 @@ import {
   type AttestationOutcome,
 } from "./services/game-launcher.js";
 import { collectHwid } from "./services/machine-identity.js";
+import { collectTpmProof } from "./services/tpm-identity.js";
 import { classifyClientSource, validateInstallDestination } from "./services/path-policy.js";
 import { locateSteamClient } from "./services/steam-locator.js";
 import {
@@ -346,7 +347,16 @@ async function attestInstallation(
         `Integrity attestation found ${measurement.deviations.length} deviation(s); reporting them.`,
       );
     }
-    return { status: "attested", block: buildAttestationResult(challenge, measurement, launcherVersion) };
+    // Sign the challengeId with the TPM-backed key when the machine has one;
+    // null when it does not, and the launch proceeds without it. Signing the
+    // (single-use) challengeId rather than the nonce lets the server verify with
+    // a value it already holds, while the single-use challenge stops replay. The
+    // server decides (behind its own flag) whether a missing proof is acceptable.
+    const tpmProof = await collectTpmProof(challenge.challengeId).catch(() => null);
+    return {
+      status: "attested",
+      block: buildAttestationResult(challenge, measurement, launcherVersion, tpmProof),
+    };
   } catch (error) {
     attestationProgress = null;
     // No policy published / attestation unconfigured: it does not apply, and

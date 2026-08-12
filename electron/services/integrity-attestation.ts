@@ -73,6 +73,12 @@ export interface AttestationResult {
   evidence: string;
   claim: AttestationClaim;
   deviations: ObservedDeviation[];
+  /**
+   * Optional TPM proof over the challenge nonce (see tpm-identity.ts). Rides in
+   * the attestation block because that is what already carries the challengeId
+   * the server needs to bind it; absent when the machine has no usable TPM.
+   */
+  tpmProof?: { publicKey: string; signature: string; algo: string };
 }
 
 interface CacheEntry {
@@ -422,6 +428,7 @@ export function buildAttestationResult(
   challenge: AttestationChallenge,
   measurement: Measurement,
   launcherVersion: string,
+  tpmProof?: { publicKey: string; signature: string; algo: string } | null,
 ): AttestationResult {
   return {
     challengeId: challenge.challengeId,
@@ -435,6 +442,7 @@ export function buildAttestationResult(
       totalBytes: measurement.totalBytes,
     },
     deviations: measurement.deviations,
+    ...(tpmProof ? { tpmProof } : {}),
   };
 }
 
