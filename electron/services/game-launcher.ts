@@ -17,6 +17,21 @@ import {
 } from "./launch-ticket.js";
 import { deployVivoxCompatibility } from "./vivox-client.js";
 
+/**
+ * What one attestation attempt produced.
+ * - `attested`: a block to carry with the ticket request.
+ * - `not-applicable`: the server has no attestation to run (no policy yet, or
+ *   unconfigured). Launch as usual — the ticket route stays the authority.
+ * - `unavailable`: attestation should have run but could not (service
+ *   unreachable, files unreadable, malformed response). No block is sent, and
+ *   if enforcement then blocks the launch, the reason explains why instead of
+ *   the ticket route's opaque "update the launcher".
+ */
+export type AttestationOutcome =
+  | { readonly status: "attested"; readonly block: unknown }
+  | { readonly status: "not-applicable" }
+  | { readonly status: "unavailable"; readonly reason: string };
+
 export interface LaunchRequest {
   config: LauncherConfig;
   identity: PlayerIdentity;
@@ -26,13 +41,37 @@ export interface LaunchRequest {
   bundledVivoxProxyPath: string;
   bundledVivoxRuntimePath: string;
   /**
-   * Integrity attestation hook. Resolves to the block the ticket request
-   * carries, or null when attestation cannot run (no policy published yet, or
-   * the launcher is configured without it). The backend decides what an absent
-   * attestation means — the launcher never self-exempts.
+   * Integrity attestation hook. The launcher never self-exempts: it reports
+   * what it observed and lets the backend decide what an absent attestation
+   * means.
    */
-  attest?: () => Promise<unknown | null>;
+  attest?: () => Promise<AttestationOutcome>;
+  /** This launcher's version, sent so the server's update gate can act. */
+  launcherVersion?: string;
+  /** Raw hardware fingerprint; the server hashes it (see machine-identity.ts). */
+  hwid?: Record<string, string>;
   onExit(exitCode: number | null): void;
+}
+
+/**
+ * Turn an attestation outcome plus the launcher's version and fingerprint into
+ * the ticket request options. A clean measurement carries its block; a
+ * not-applicable one carries nothing; an unavailable one records why so an
+ * enforced refusal can name the real cause. The version and HWID ride along
+ * regardless, so the update gate and HWID capture work even with no attestation.
+ */
+function ticketRequestOptions(
+  request: LaunchRequest,
+  outcome: AttestationOutcome,
+): { attestation?: unknown; attestationUnavailableReason?: string; launcherVersion?: string; hwid?: Record<string, string> } {
+  const base: { launcherVersion?: string; hwid?: Record<string, string> } = {};
+  if (request.launcherVersion) base.launcherVersion = request.launcherVersion;
+  if (request.hwid && Object.keys(request.hwid).length > 0) base.hwid = request.hwid;
+  if (outcome.status === "attested") return { ...base, attestation: outcome.block };
+  if (outcome.status === "unavailable") {
+    return { ...base, attestationUnavailableReason: outcome.reason };
+  }
+  return base;
 }
 
 async function validateMarker(installation: InstalledClientConfig): Promise<void> {
@@ -183,14 +222,16 @@ export class GameLauncher {
 
     // Integrity attestation runs before the ticket exists: the whole point is
     // that a tampered installation never obtains one.
-    const attestation = request.attest ? await request.attest() : null;
+    const outcome = request.attest
+      ? await request.attest()
+      : { status: "not-applicable" } as const;
 
     // The durable website key reaches only the HTTPS account service. H1Z1
     // receives a short ticket and the Steam identity authenticated by it.
     let launchIdentity = await createLaunchTicket(
       request.identity.playerKey,
       request.runtime.launchTicketUrl,
-      { attestation },
+      ticketRequestOptions(request, outcome),
     );
     let sessionGateway = await startLocalSessionGateway(launchIdentity.ticket);
 
@@ -211,11 +252,13 @@ export class GameLauncher {
         await sessionGateway.close().catch(() => undefined);
         // A fresh ticket needs a fresh attestation: the first challenge was
         // consumed by the request above and is not replayable.
-        const refreshedAttestation = request.attest ? await request.attest() : null;
+        const refreshed = request.attest
+          ? await request.attest()
+          : { status: "not-applicable" } as const;
         launchIdentity = await createLaunchTicket(
           request.identity.playerKey,
           request.runtime.launchTicketUrl,
-          { attestation: refreshedAttestation },
+          ticketRequestOptions(request, refreshed),
         );
         sessionGateway = await startLocalSessionGateway(launchIdentity.ticket);
         await prepareClient(

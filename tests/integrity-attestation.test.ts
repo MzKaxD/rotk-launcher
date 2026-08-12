@@ -276,6 +276,29 @@ describe("challenge handling", () => {
     ).rejects.toThrow(/no published integrity policy/);
   });
 
+  it("marks an unpublished policy as not-applicable, not a failure to surface", async () => {
+    // The self-hosted route answers failed-precondition (nested error shape)
+    // when no policy is published; the launcher must treat that as "attestation
+    // does not apply" and launch as usual, not as a verification failure.
+    const selfHosted = (async () => new Response(
+      JSON.stringify({ error: { code: "failed-precondition", message: "No attestation policy is published." } }),
+      { status: 412, headers: { "content-type": "application/json" } },
+    )) as unknown as typeof fetch;
+    await expect(
+      requestAttestationChallenge(PLAYER_KEY, ENDPOINT, LAUNCHER_VERSION, { fetchImpl: selfHosted }),
+    ).rejects.toMatchObject({ name: "AttestationUnavailableError", notApplicable: true });
+  });
+
+  it("marks an unreachable service as unavailable, to be surfaced", async () => {
+    const unreachable = (async () => new Response(
+      JSON.stringify({ error: { code: "internal", message: "boom" } }),
+      { status: 500, headers: { "content-type": "application/json" } },
+    )) as unknown as typeof fetch;
+    await expect(
+      requestAttestationChallenge(PLAYER_KEY, ENDPOINT, LAUNCHER_VERSION, { fetchImpl: unreachable }),
+    ).rejects.toMatchObject({ name: "AttestationUnavailableError", notApplicable: false });
+  });
+
   it("refuses non-HTTPS endpoints", async () => {
     await expect(
       requestAttestationChallenge(PLAYER_KEY, "http://accounts.rotk.app/x", LAUNCHER_VERSION),

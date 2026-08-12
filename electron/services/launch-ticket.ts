@@ -31,6 +31,27 @@ interface TicketRequestOptions {
    * the backend runs in observation mode; required once enforcement is on.
    */
   attestation?: unknown;
+  /**
+   * Set when attestation should have run but could not (service unreachable,
+   * files unreadable). No block is sent; if enforcement then refuses the
+   * launch, this reason is surfaced instead of the misleading "update the
+   * launcher" — the launch failed because the files could not be verified, not
+   * because the launcher is old.
+   */
+  attestationUnavailableReason?: string;
+  /**
+   * This launcher's version, sent top-level so the server's update gate can act
+   * even when no attestation block is present. The server refuses an
+   * under-minimum version with launcher_update_required.
+   */
+  launcherVersion?: string;
+  /**
+   * The raw hardware fingerprint (see machine-identity.ts). The server
+   * keyed-hashes each component and stores only digests; the launcher holds no
+   * hashing key and sends the raw values, exactly like the address it never
+   * sees hashed.
+   */
+  hwid?: Record<string, string>;
 }
 
 function validateEndpoint(value: string): URL {
@@ -144,16 +165,36 @@ function parseTicketResponse(
   assertLaunchTicketFresh(identity, MINIMUM_TICKET_LIFETIME_MS, timing.receivedAtMonotonicMs);
   return identity;
 }
-function serviceError(status: number, value: unknown): Error {
+function serviceError(status: number, value: unknown, attestationUnavailableReason?: string): Error {
   const payload = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
   const errorCode = payload?.error ?? null;
+  // Enforcement refuses either an installation that failed verification, or one
+  // that submitted no attestation at all. When we already know the launcher
+  // could not run attestation, that second case is not a tamper and not an old
+  // launcher: say so, so the player checks their connection instead of chasing
+  // a phantom update or a "verify files" that will not help.
+  if (
+    (errorCode === "attestation_failed" || errorCode === "launcher_update_required")
+    && attestationUnavailableReason
+  ) {
+    return new Error(
+      `ROTK could not verify your game files: ${attestationUnavailableReason} `
+      + "Check your connection and try again.",
+    );
+  }
   if (errorCode === "attestation_failed") {
     return new Error(
       "The game files do not match the official ROTK installation. Use Verify files, then try again.",
     );
   }
   if (errorCode === "launcher_update_required") {
-    return new Error("This launcher version is too old to verify the game files. Update the launcher.");
+    const error = new Error(
+      "This launcher version is too old to verify the game files. Update the launcher.",
+    );
+    // Tagged so the launch flow can make the update mandatory (block Play,
+    // trigger the updater) rather than only showing the message.
+    (error as { code?: string }).code = "launcher_update_required";
+    return error;
   }
   if (errorCode === "account_banned") {
     const expiresAt = typeof payload?.expiresAt === "string" ? payload.expiresAt : null;
@@ -207,6 +248,8 @@ export async function createLaunchTicket(
         },
         body: JSON.stringify({
           launcherKey: normalizePlayerKey(playerKey),
+          ...(options.launcherVersion ? { launcherVersion: options.launcherVersion } : {}),
+          ...(options.hwid && Object.keys(options.hwid).length > 0 ? { hwid: options.hwid } : {}),
           ...(options.attestation ? { attestation: options.attestation } : {}),
         }),
         cache: "no-store",
@@ -223,7 +266,7 @@ export async function createLaunchTicket(
     } catch {
       throw new Error("Invalid response from the ROTK account service");
     }
-    if (!response.ok) throw serviceError(response.status, payload);
+    if (!response.ok) throw serviceError(response.status, payload, options.attestationUnavailableReason);
     return parseTicketResponse(payload, {
       requestStartedAtMonotonicMs,
       receivedAtMonotonicMs: performance.now(),

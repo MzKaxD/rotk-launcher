@@ -58,6 +58,31 @@ describe("ROTK launch ticket client", () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
+  it("sends the launcher version and HWID vector when provided", async () => {
+    const hwid = { machine_guid: "mg-1", smbios_uuid: "sm-2", disk_serial: "dk-4" };
+    const fetchImpl = vi.fn(async (_input: URL | RequestInfo, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toEqual({ launcherKey, launcherVersion: "1.4.0", hwid });
+      return jsonResponse(validResponse);
+    }) as typeof fetch;
+    await createLaunchTicket(launcherKey, endpoint, { fetchImpl, launcherVersion: "1.4.0", hwid });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("omits an empty HWID vector rather than sending an empty object", async () => {
+    const fetchImpl = vi.fn(async (_input: URL | RequestInfo, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toEqual({ launcherKey, launcherVersion: "1.4.0" });
+      return jsonResponse(validResponse);
+    }) as typeof fetch;
+    await createLaunchTicket(launcherKey, endpoint, { fetchImpl, launcherVersion: "1.4.0", hwid: {} });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("tags the update-required refusal so the launch flow can make it mandatory", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ error: "launcher_update_required" }, 403)) as typeof fetch;
+    await expect(createLaunchTicket(launcherKey, endpoint, { fetchImpl }))
+      .rejects.toMatchObject({ code: "launcher_update_required" });
+  });
+
   it("does not reject a valid authority window when the workstation wall clock is wrong", async () => {
     const wallClock = vi.spyOn(Date, "now").mockReturnValue(authorityIssuedAtMs + 24 * 60 * 60_000);
     const fetchImpl = vi.fn(async () => jsonResponse(validResponse)) as typeof fetch;
@@ -96,6 +121,31 @@ describe("ROTK launch ticket client", () => {
 
     await expect(createLaunchTicket(launcherKey, endpoint, { fetchImpl }))
       .rejects.toThrow("This ROTK account is not ready to play yet");
+  });
+
+  it("blames verification, not the launcher version, when attestation could not run", async () => {
+    // Enforcement answers a missing attestation with launcher_update_required.
+    // When the launcher already knows it could not verify (service unreachable),
+    // the player must be pointed at their connection, not a phantom update.
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ error: "launcher_update_required", failureCode: "missing_attestation" }, 403),
+    ) as typeof fetch;
+
+    await expect(createLaunchTicket(launcherKey, endpoint, {
+      fetchImpl,
+      attestationUnavailableReason: "the ROTK integrity service could not be reached.",
+    })).rejects.toThrow(/could not verify your game files.*could not be reached/s);
+  });
+
+  it("keeps the update message when attestation actually ran and the launcher is old", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ error: "launcher_update_required", failureCode: "launcher_update_required" }, 403),
+    ) as typeof fetch;
+
+    // No unavailable reason: the block was sent and the server judged the
+    // version too old, so the update message is the right one.
+    await expect(createLaunchTicket(launcherKey, endpoint, { fetchImpl }))
+      .rejects.toThrow("This launcher version is too old");
   });
 
   it("rejects malformed identity data even after HTTP 200", async () => {
