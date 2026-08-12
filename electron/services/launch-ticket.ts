@@ -39,6 +39,19 @@ interface TicketRequestOptions {
    * because the launcher is old.
    */
   attestationUnavailableReason?: string;
+  /**
+   * This launcher's version, sent top-level so the server's update gate can act
+   * even when no attestation block is present. The server refuses an
+   * under-minimum version with launcher_update_required.
+   */
+  launcherVersion?: string;
+  /**
+   * The raw hardware fingerprint (see machine-identity.ts). The server
+   * keyed-hashes each component and stores only digests; the launcher holds no
+   * hashing key and sends the raw values, exactly like the address it never
+   * sees hashed.
+   */
+  hwid?: Record<string, string>;
 }
 
 function validateEndpoint(value: string): URL {
@@ -175,7 +188,13 @@ function serviceError(status: number, value: unknown, attestationUnavailableReas
     );
   }
   if (errorCode === "launcher_update_required") {
-    return new Error("This launcher version is too old to verify the game files. Update the launcher.");
+    const error = new Error(
+      "This launcher version is too old to verify the game files. Update the launcher.",
+    );
+    // Tagged so the launch flow can make the update mandatory (block Play,
+    // trigger the updater) rather than only showing the message.
+    (error as { code?: string }).code = "launcher_update_required";
+    return error;
   }
   if (errorCode === "account_banned") {
     const expiresAt = typeof payload?.expiresAt === "string" ? payload.expiresAt : null;
@@ -229,6 +248,8 @@ export async function createLaunchTicket(
         },
         body: JSON.stringify({
           launcherKey: normalizePlayerKey(playerKey),
+          ...(options.launcherVersion ? { launcherVersion: options.launcherVersion } : {}),
+          ...(options.hwid && Object.keys(options.hwid).length > 0 ? { hwid: options.hwid } : {}),
           ...(options.attestation ? { attestation: options.attestation } : {}),
         }),
         cache: "no-store",

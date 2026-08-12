@@ -54,6 +54,7 @@ import {
   validateInstalledClient,
   type AttestationOutcome,
 } from "./services/game-launcher.js";
+import { collectHwid } from "./services/machine-identity.js";
 import { classifyClientSource, validateInstallDestination } from "./services/path-policy.js";
 import { locateSteamClient } from "./services/steam-locator.js";
 import {
@@ -127,6 +128,9 @@ let destinationRecommended = false;
 let progress: LauncherSnapshot["progress"] = null;
 let updates: LauncherSnapshot["updates"] = [];
 let lastErrorRaw: string | null = null;
+// Set when the server refuses a launch for launcher_update_required: the update
+// becomes mandatory (Play is blocked) until a newer launcher is installed.
+let updateRequired = false;
 let gamePid: number | null = null;
 let currentLocale: AppLocale = "en";
 let playerKeys: PlayerKeySet = {};
@@ -400,11 +404,14 @@ async function snapshot(): Promise<LauncherSnapshot> {
     progress,
     error: lastErrorRaw ? localizeServiceError(lastErrorRaw, currentLocale) : null,
     gamePid,
+    updateRequired,
     canPlay:
       phase === "ready"
       && configuredRoot !== null
       && activeKey() !== null
-      && !gameLauncher.isRunning(),
+      && !gameLauncher.isRunning()
+      // A mandatory update blocks Play until a newer launcher is installed.
+      && !updateRequired,
   };
 }
 
@@ -777,6 +784,10 @@ function registerIpc(): void {
           bundledVivoxProxyPath: resolveBundledVivoxProxyPath(),
           bundledVivoxRuntimePath: resolveBundledVivoxRuntimePath(),
           attest: () => attestInstallation(launchCredential.playerKey, launchRuntime),
+          launcherVersion: app.getVersion(),
+          // Best-effort hardware fingerprint; the server hashes it. A failure
+          // must never block a launch, so it degrades to no HWID signal.
+          hwid: await collectHwid().catch(() => ({})),
           onExit: () => {
             gamePid = null;
             phase = "ready";
@@ -790,8 +801,13 @@ function registerIpc(): void {
         return { ok: true, value: { pid } };
       } catch (error) {
         const result = operationError<{ pid: number }>(error);
-        // Keep Play retryable after a transient launch failure while retaining
-        // the concrete error in the snapshot.
+        // A version refusal makes the update mandatory: block Play and kick the
+        // updater so the newer launcher downloads. Any other failure stays
+        // retryable, so it must not set the flag.
+        if ((error as { code?: string })?.code === "launcher_update_required") {
+          updateRequired = true;
+          void launcherUpdate.check().catch(() => undefined);
+        }
         phase = "ready";
         await broadcastSnapshot();
         if (quitWhenGameExits && !mainWindow) app.quit();

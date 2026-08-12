@@ -58,6 +58,31 @@ describe("ROTK launch ticket client", () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
+  it("sends the launcher version and HWID vector when provided", async () => {
+    const hwid = { machine_guid: "mg-1", smbios_uuid: "sm-2", disk_serial: "dk-4" };
+    const fetchImpl = vi.fn(async (_input: URL | RequestInfo, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toEqual({ launcherKey, launcherVersion: "1.4.0", hwid });
+      return jsonResponse(validResponse);
+    }) as typeof fetch;
+    await createLaunchTicket(launcherKey, endpoint, { fetchImpl, launcherVersion: "1.4.0", hwid });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("omits an empty HWID vector rather than sending an empty object", async () => {
+    const fetchImpl = vi.fn(async (_input: URL | RequestInfo, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toEqual({ launcherKey, launcherVersion: "1.4.0" });
+      return jsonResponse(validResponse);
+    }) as typeof fetch;
+    await createLaunchTicket(launcherKey, endpoint, { fetchImpl, launcherVersion: "1.4.0", hwid: {} });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("tags the update-required refusal so the launch flow can make it mandatory", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ error: "launcher_update_required" }, 403)) as typeof fetch;
+    await expect(createLaunchTicket(launcherKey, endpoint, { fetchImpl }))
+      .rejects.toMatchObject({ code: "launcher_update_required" });
+  });
+
   it("does not reject a valid authority window when the workstation wall clock is wrong", async () => {
     const wallClock = vi.spyOn(Date, "now").mockReturnValue(authorityIssuedAtMs + 24 * 60 * 60_000);
     const fetchImpl = vi.fn(async () => jsonResponse(validResponse)) as typeof fetch;
