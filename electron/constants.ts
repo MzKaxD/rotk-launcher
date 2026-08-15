@@ -1,7 +1,9 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "electron";
 
 export const APP_NAME = "ROTK Launcher";
+export const APP_USER_MODEL_ID = "app.rotk.launcher";
 export const WEBSITE_ORIGIN = "https://rotk.app";
 export const WEBSITE_UPDATES_PATH = "/updates";
 export const FORBIDDEN_INSTALL_SEGMENTS = new Set([
@@ -20,6 +22,14 @@ export const CRITICAL_CLIENT_FILES = [
 export const ROTK_INSTALL_DIRECTORY_NAME = "ROTK";
 export const RECOMMENDED_INSTALL_PARENT_NAME = "Games";
 export const INSTALL_MARKER_NAME = ".rotk-installation.json";
+
+export function resolveAppIconPath(): string {
+  if (app.isPackaged) {
+    const fromResources = join(process.resourcesPath, "icon.ico");
+    if (existsSync(fromResources)) return fromResources;
+  }
+  return join(app.getAppPath(), "build", "icon.ico");
+}
 
 export function resolveBundledShimPath(): string {
   return app.isPackaged

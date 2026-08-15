@@ -69,6 +69,8 @@ export interface Copy {
     playersInGame: string;
     playersUnavailable: string;
     playersUnknown: string;
+    playTime: string;
+    playTimeHint: string;
   };
   identity: {
     panelLabel: string;
@@ -231,6 +233,8 @@ const COPY: Record<AppLocale, Copy> = {
       playersInGame: "IN GAME",
       playersUnavailable: "—",
       playersUnknown: "Player count unavailable",
+      playTime: "Play time",
+      playTimeHint: "Time spent in H1Z1 after a launch from this launcher. Stored only on this computer.",
     },
     identity: {
       panelLabel: "ROTK account authentication",
@@ -423,6 +427,8 @@ const COPY: Record<AppLocale, Copy> = {
       playersInGame: "EN JEU",
       playersUnavailable: "—",
       playersUnknown: "Nombre de joueurs indisponible",
+      playTime: "Temps de jeu",
+      playTimeHint: "Temps passé dans H1Z1 après un lancement depuis ce launcher. Conservé uniquement sur cet ordinateur.",
     },
     identity: {
       panelLabel: "Authentification du compte ROTK",

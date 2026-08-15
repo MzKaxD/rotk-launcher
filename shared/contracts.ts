@@ -133,6 +133,14 @@ export interface IntegrityCheckSummary {
   totalBytes: number;
 }
 
+/** Local H1Z1 play time. Never sent to a server. */
+export interface PlaytimeSummary {
+  /** Committed seconds plus the live launcher-started session. */
+  totalSeconds: number;
+  /** True only while H1Z1.exe started by this launcher is being counted. */
+  sessionActive: boolean;
+}
+
 export interface LauncherSnapshot {
   appVersion: string;
   phase: LauncherPhase;
@@ -147,6 +155,7 @@ export interface LauncherSnapshot {
   progress: InstallProgress | null;
   error: string | null;
   gamePid: number | null;
+  playtime: PlaytimeSummary;
   /** The server refused a launch for an out-of-date launcher; Play is blocked
    *  until a newer version is installed. */
   updateRequired: boolean;

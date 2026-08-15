@@ -705,6 +705,13 @@ button:focus-visible {
   border-right: 1px solid var(--line);
 }
 
+.launcher-footer__status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 28px;
+}
+
 .server-select__trigger {
   width: 100%;
   height: 100%;
@@ -856,12 +863,49 @@ button:focus-visible {
   box-shadow: 0 0 0 5px rgba(134, 169, 110, 0.1);
 }
 
-.launcher-footer__status > div,
+.launcher-footer__status-copy,
 .server-select__trigger > div {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.playtime-badge {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--paper);
+}
+
+.playtime-badge > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.playtime-badge > svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.playtime-badge.is-live > svg {
+  color: #86a96e;
+}
+
+.playtime-badge span {
+  color: var(--muted);
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.playtime-badge strong {
+  font-variant-numeric: tabular-nums;
 }
 
 .launcher-footer__status strong,
@@ -870,11 +914,18 @@ button:focus-visible {
   font-weight: 600;
   font-size: 16px;
   letter-spacing: 0.08em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.launcher-footer__status small {
+.launcher-footer__status-copy {
+  overflow: hidden;
+}
+
+.launcher-footer__status-copy small {
   display: block;
-  max-width: 470px;
+  max-width: 100%;
   overflow: hidden;
   color: var(--muted);
   font-family: "Barlow Condensed", sans-serif;
@@ -1947,12 +1998,29 @@ button:focus-visible {
   }
 
   .launcher-footer {
-    grid-template-columns: minmax(300px, 1fr) 245px 104px 220px;
+    grid-template-columns: minmax(200px, 1fr) minmax(300px, 1.25fr) 96px 200px;
   }
 
   .launcher-footer__status,
   .launcher-footer__server {
-    padding-inline: 20px;
+    padding-inline: 16px;
+  }
+
+  .server-select__trigger {
+    gap: 10px;
+    padding: 0 16px;
+  }
+
+  .server-select__trigger > .server-population small {
+    display: none;
+  }
+
+  .server-select__trigger i {
+    padding: 4px 6px;
+  }
+
+  .playtime-badge {
+    gap: 8px;
   }
 
   .news-carousel__content {

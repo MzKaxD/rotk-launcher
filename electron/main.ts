@@ -41,8 +41,10 @@ import {
 } from "../shared/launch-profile.js";
 import {
   APP_NAME,
+  APP_USER_MODEL_ID,
   RECOMMENDED_INSTALL_PARENT_NAME,
   ROTK_INSTALL_DIRECTORY_NAME,
+  resolveAppIconPath,
   resolveBundledShimPath,
   resolveBundledVivoxProxyPath,
   resolveBundledVivoxRuntimePath,
@@ -58,6 +60,7 @@ import { collectHwid } from "./services/machine-identity.js";
 import { collectTpmProof } from "./services/tpm-identity.js";
 import { classifyClientSource, validateInstallDestination } from "./services/path-policy.js";
 import { locateSteamClient } from "./services/steam-locator.js";
+import { locateIsolatedRotkClient } from "./services/rotk-locator.js";
 import {
   runtimeConfigFor,
   runtimeConfigList,
@@ -77,6 +80,8 @@ import { localizeServiceError, MAIN_COPY } from "./i18n.js";
 import { identityFromPlayerKey } from "./services/player-identity.js";
 import { PlayerKeyStore, type PlayerKeySet } from "./services/player-key-store.js";
 import { readInstallationMarker } from "./services/installer.js";
+import { PlaytimeStore } from "./services/playtime-store.js";
+import { PlaytimeTracker } from "./services/playtime-tracker.js";
 import {
   BASE_MANIFEST_URL,
   loadBaseManifest,
@@ -92,6 +97,7 @@ import {
 } from "./services/integrity-attestation.js";
 
 app.setName(APP_NAME);
+app.setAppUserModelId(APP_USER_MODEL_ID);
 if (!app.isPackaged && process.env.ROTK_USER_DATA_DIR) {
   app.setPath("userData", resolve(process.env.ROTK_USER_DATA_DIR));
 } else {
@@ -118,6 +124,9 @@ let updateFeed: UpdateFeedService;
 let assetSync: AssetSyncService;
 let launcherUpdate: LauncherUpdateService;
 const gameLauncher = new GameLauncher();
+const playtimeTracker = new PlaytimeTracker(new PlaytimeStore(app.getPath("userData")), {
+  onChange: () => void broadcastSnapshot(),
+});
 const LAUNCHER_UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000;
 let installAbortController: AbortController | null = null;
 let phase: LauncherPhase = "unconfigured";
@@ -414,6 +423,7 @@ async function snapshot(): Promise<LauncherSnapshot> {
     progress,
     error: lastErrorRaw ? localizeServiceError(lastErrorRaw, currentLocale) : null,
     gamePid,
+    playtime: playtimeTracker.summary(),
     updateRequired,
     canPlay:
       phase === "ready"
@@ -588,7 +598,7 @@ function registerIpc(): void {
       if (installAbortController) return { ok: false, error: copy.installationInProgress };
       if (sourceRoot) return { ok: true, value: { sourceRoot } };
       try {
-        const located = await locateSteamClient();
+        const located = await locateIsolatedRotkClient() ?? await locateSteamClient();
         if (!located) return { ok: true, value: { sourceRoot: null } };
         const selectedClient = await classifyClientSource(located);
         sourceRoot = selectedClient.root;
@@ -801,12 +811,15 @@ function registerIpc(): void {
           onExit: () => {
             gamePid = null;
             phase = "ready";
-            void broadcastSnapshot();
-            if (quitWhenGameExits && !mainWindow) app.quit();
+            void playtimeTracker.endSession().finally(() => {
+              void broadcastSnapshot();
+              if (quitWhenGameExits && !mainWindow) app.quit();
+            });
           },
         });
         gamePid = pid;
         phase = "running";
+        playtimeTracker.startSession();
         await broadcastSnapshot();
         return { ok: true, value: { pid } };
       } catch (error) {
@@ -947,6 +960,7 @@ function createWindow(): BrowserWindow {
     frame: false,
     backgroundColor: "#090909",
     title: "ROTK Launcher",
+    icon: resolveAppIconPath(),
     webPreferences: {
       preload: join(currentDirectory, "preload.cjs"),
       contextIsolation: true,
@@ -1001,6 +1015,7 @@ async function initialize(): Promise<void> {
     join(app.getPath("userData"), "player-key.v1.json"),
   );
   playerKeys = await playerKeyStore.load();
+  await playtimeTracker.initialize();
   updateFeed = new UpdateFeedService(app.getPath("userData"));
   assetSync = new AssetSyncService({
     userDataDirectory: app.getPath("userData"),
@@ -1026,6 +1041,28 @@ async function initialize(): Promise<void> {
     } catch (error) {
       phase = "error";
       lastErrorRaw = rawErrorMessage(error);
+    }
+  } else {
+    const discovered = await locateIsolatedRotkClient();
+    if (discovered) {
+      const marker = await readInstallationMarker(discovered);
+      if (marker) {
+        const installation = {
+          installId: marker.installId,
+          clientBuildId: marker.clientBuildId,
+          root: discovered,
+          sourceRoot: marker.sourceRoot,
+          installedAt: marker.installedAt,
+          criticalHashes: marker.criticalHashes,
+        };
+        try {
+          await validateInstalledClient(installation);
+          await configStore.setInstallation(installation);
+          phase = "ready";
+        } catch {
+          // Discovery is best-effort; the setup panel remains available.
+        }
+      }
     }
   }
   launcherUpdate = new LauncherUpdateService({
@@ -1072,6 +1109,11 @@ app.on("window-all-closed", () => {
     return;
   }
   app.quit();
+});
+
+app.on("before-quit", () => {
+  playtimeTracker.dispose();
+  void playtimeTracker.endSession();
 });
 
 process.on("uncaughtException", (error) => {

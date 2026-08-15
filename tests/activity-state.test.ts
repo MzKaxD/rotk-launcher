@@ -62,6 +62,10 @@ function snapshot(overrides: Partial<LauncherSnapshot> = {}): LauncherSnapshot {
     progress: null,
     error: null,
     gamePid: null,
+    playtime: {
+      totalSeconds: 0,
+      sessionActive: false,
+    },
     updateRequired: false,
     canPlay: true,
     ...overrides,
@@ -73,6 +77,14 @@ describe("homepage activity selector", () => {
     "stays hidden while %s is idle",
     (phase) => expect(selectGlobalActivities(snapshot({ phase }))).toEqual([]),
   );
+
+  it("keeps a local playtime summary on idle snapshots without creating an activity", () => {
+    const current = snapshot({
+      playtime: { totalSeconds: 7260, sessionActive: true },
+    });
+    expect(current.playtime).toEqual({ totalSeconds: 7260, sessionActive: true });
+    expect(selectGlobalActivities(current)).toEqual([]);
+  });
 
   it("shows installation immediately, before the first progress event", () => {
     expect(selectGlobalActivities(snapshot({ phase: "installing" }))).toMatchObject([

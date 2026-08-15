@@ -1,7 +1,9 @@
-import { CircleAlert, KeyRound, Play, RotateCcw, Settings2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CircleAlert, Clock, KeyRound, Play, RotateCcw, Settings2 } from "lucide-react";
 import type { LauncherSnapshot } from "../../shared/contracts";
 import type { PlayerRole, ServerId } from "../../shared/launch-profile";
 import { useI18n, type Copy } from "../i18n";
+import { formatPlaytimeHours } from "../playtime-format";
 import { ServerSelect } from "./ServerSelect";
 
 interface LauncherFooterProps {
@@ -62,6 +64,42 @@ function statusCopy(snapshot: LauncherSnapshot, copy: Copy): { label: string; de
   return { label: copy.footer.setupRequired, detail: copy.footer.createIndependentInstall };
 }
 
+function PlaytimeBadge({ snapshot, copy }: { snapshot: LauncherSnapshot; copy: Copy }) {
+  const baseline = snapshot.playtime.totalSeconds;
+  const live = snapshot.playtime.sessionActive;
+  const [liveExtra, setLiveExtra] = useState(0);
+
+  useEffect(() => {
+    if (!live) {
+      setLiveExtra(0);
+      return;
+    }
+    const started = performance.now();
+    const tick = (): void => {
+      setLiveExtra(Math.floor((performance.now() - started) / 1000));
+    };
+    const id = window.setInterval(tick, 15_000);
+    return () => window.clearInterval(id);
+  }, [live, baseline]);
+
+  const formatted = formatPlaytimeHours(baseline + liveExtra);
+  const hint = `${copy.footer.playTime}. ${copy.footer.playTimeHint}`;
+
+  return (
+    <div
+      className={`playtime-badge ${live ? "is-live" : ""}`}
+      title={hint}
+      aria-label={`${copy.footer.playTime}: ${formatted}`}
+    >
+      <Clock size={16} aria-hidden="true" />
+      <div>
+        <span>{copy.footer.playTime}</span>
+        <strong>{formatted}</strong>
+      </div>
+    </div>
+  );
+}
+
 export function LauncherFooter({
   snapshot,
   busy,
@@ -90,10 +128,11 @@ export function LauncherFooter({
     <footer className="launcher-footer">
       <div className="launcher-footer__status">
         <span className={`status-pulse ${snapshot.canPlay ? "is-ready" : ""}`} />
-        <div>
+        <div className="launcher-footer__status-copy">
           <strong>{status.label}</strong>
           <small title={status.detail}>{status.detail}</small>
         </div>
+        <PlaytimeBadge snapshot={snapshot} copy={copy} />
       </div>
 
       <ServerSelect
