@@ -20,6 +20,12 @@ describe("launcher locales", () => {
         "en",
       ),
     ).toBe("The required Vivox 5 version is missing from the H1Z1 client.");
+    expect(
+      localizeServiceError(
+        "Le patch crouch ROTK obligatoire n'a pas été activé correctement.",
+        "en",
+      ),
+    ).toBe("The mandatory ROTK crouch patch was not activated correctly.");
   });
 
   it("localizes internal English errors for the French interface", () => {
