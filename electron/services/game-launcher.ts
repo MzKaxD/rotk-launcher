@@ -220,6 +220,15 @@ export class GameLauncher {
     await mkdir(localLogs, { recursive: true });
     await mkdir(failureLogs, { recursive: true });
 
+    // Repair the mandatory native client patch before attestation. Without
+    // this preflight, the first launch after a launcher update would attest
+    // the previous proxy and could be rejected before it can be upgraded.
+    await deployVivoxCompatibility(
+      installationRoot,
+      request.bundledVivoxProxyPath,
+      request.bundledVivoxRuntimePath,
+    );
+
     // Integrity attestation runs before the ticket exists: the whole point is
     // that a tampered installation never obtains one.
     const outcome = request.attest

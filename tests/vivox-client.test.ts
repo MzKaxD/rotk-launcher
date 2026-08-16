@@ -3,7 +3,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { vivoxClientInternals } from "../electron/services/vivox-client.js";
+import {
+  CROUCH_PARITY_MARKER_CONTENTS,
+  VIVOX_PROXY_SHA256,
+  vivoxClientInternals,
+} from "../electron/services/vivox-client.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -12,10 +16,17 @@ function hash(contents: string): string {
 }
 
 const contents = {
+  h1z1: "supported-h1z1-build",
   v4: "stock-vivox-v4",
   v5: "official-vivox-v5",
   proxy: "rotk-vivox-proxy",
   stale: "stale-or-corrupt",
+  marker: [
+    "mode=patch-v2",
+    "animation=v11-test",
+    "cameraScalePitch=disabled",
+    "",
+  ].join("\n"),
 };
 
 const policy = {
@@ -24,6 +35,9 @@ const policy = {
   proxySha256: hash(contents.proxy),
   proxyMinBytes: 1,
   proxyMaxBytes: 1_024,
+  h1z1Sha256: hash(contents.h1z1),
+  h1z1Bytes: Buffer.byteLength(contents.h1z1),
+  crouchMarkerContents: contents.marker,
 };
 
 async function createFixture(): Promise<{
@@ -38,6 +52,7 @@ async function createFixture(): Promise<{
   const proxy = join(directory, "bundled-proxy.dll");
   const runtime = join(directory, "bundled-v5.dll");
   await mkdir(root);
+  await writeFile(join(root, "H1Z1.exe"), contents.h1z1);
   await writeFile(proxy, contents.proxy);
   await writeFile(runtime, contents.v5);
   return { root, proxy, runtime };
@@ -63,6 +78,15 @@ afterEach(async () => {
 });
 
 describe("Vivox client deployment", () => {
+  it("ships the ADS-safe mandatory production marker", () => {
+    expect(CROUCH_PARITY_MARKER_CONTENTS).toContain("mode=patch-v2\n");
+    expect(CROUCH_PARITY_MARKER_CONTENTS).toContain("cameraScalePitch=disabled\n");
+    expect(CROUCH_PARITY_MARKER_CONTENTS).toContain(
+      `proxySha256=${VIVOX_PROXY_SHA256.toUpperCase()}\n`,
+    );
+    expect(CROUCH_PARITY_MARKER_CONTENTS).not.toContain("cameraScalePitch=direct");
+  });
+
   it("installs and verifies both DLLs while preserving the stock runtime", async () => {
     const fixture = await createFixture();
     await writeFile(join(fixture.root, "vivoxsdk_x64.dll"), contents.v4);
@@ -76,13 +100,16 @@ describe("Vivox client deployment", () => {
       .resolves.toBe(contents.v5);
     await expect(readFile(join(fixture.root, "vivoxsdk_x64.original.dll"), "utf8"))
       .resolves.toBe(contents.v4);
+    await expect(readFile(join(fixture.root, "rotk-crouch-parity.ini"), "ascii"))
+      .resolves.toBe(contents.marker);
   });
 
-  it("repairs a stale proxy and a corrupt Vivox 5 runtime", async () => {
+  it("repairs a stale proxy, runtime and crouch marker", async () => {
     const fixture = await createFixture();
     await writeFile(join(fixture.root, "vivoxsdk_x64.dll"), contents.stale);
     await writeFile(join(fixture.root, "vivoxsdk_x64.original.dll"), contents.v4);
     await writeFile(join(fixture.root, "vivoxsdk_x64_v5.dll"), contents.stale);
+    await writeFile(join(fixture.root, "rotk-crouch-parity.ini"), "mode=disabled\n");
 
     await deploy(fixture);
 
@@ -90,6 +117,8 @@ describe("Vivox client deployment", () => {
       .resolves.toBe(contents.proxy);
     await expect(readFile(join(fixture.root, "vivoxsdk_x64_v5.dll"), "utf8"))
       .resolves.toBe(contents.v5);
+    await expect(readFile(join(fixture.root, "rotk-crouch-parity.ini"), "ascii"))
+      .resolves.toBe(contents.marker);
   });
 
   it("migrates a valid legacy backup over a corrupt canonical backup", async () => {
@@ -156,5 +185,19 @@ describe("Vivox client deployment", () => {
     await writeFile(fixture.proxy, contents.stale);
     await expect(deploy(fixture)).rejects.toThrow(/proxy vocal ROTK.+invalide/i);
     await expect(readFile(activePath, "utf8")).resolves.toBe(contents.v4);
+  });
+
+  it("fails closed before mutation for an unsupported H1Z1 executable", async () => {
+    const fixture = await createFixture();
+    const activePath = join(fixture.root, "vivoxsdk_x64.dll");
+    await writeFile(activePath, contents.v4);
+    await writeFile(join(fixture.root, "H1Z1.exe"), contents.stale);
+
+    await expect(deploy(fixture)).rejects.toThrow(/patch crouch ROTK obligatoire/i);
+    await expect(readFile(activePath, "utf8")).resolves.toBe(contents.v4);
+    await expect(readFile(join(fixture.root, "vivoxsdk_x64_v5.dll")))
+      .rejects.toThrow();
+    await expect(readFile(join(fixture.root, "rotk-crouch-parity.ini")))
+      .rejects.toThrow();
   });
 });

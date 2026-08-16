@@ -454,6 +454,8 @@ static void proxy_trace_once(LONG flag, const char *event) {
     proxy_trace_line(event);
 }
 
+#include "crouch_parity_patch.h"
+
 static uint16_t load_le16(const uint8_t *value) {
     return (uint16_t)((uint16_t)value[0] |
                       ((uint16_t)value[1] << 8U));
@@ -2695,6 +2697,7 @@ BOOL WINAPI DllMain(HINSTANCE instance,
     if (reason == DLL_PROCESS_ATTACH) {
         g_proxy_module = instance;
         DisableThreadLibraryCalls(instance);
+        crouch_parity_start();
     }
     return TRUE;
 }
