@@ -1,14 +1,33 @@
-import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { copyFile, rm, stat } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { constants as fsConstants, createReadStream } from "node:fs";
+import { copyFile, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { SUPPORTED_CLIENT_BUILDS } from "./client-build.js";
 
 export const VIVOX_STOCK_V4_SHA256 =
   "d6915a466a905ae55f7e20019e01228c92cc86ce793a9fc050b49258a210c7b1";
 export const VIVOX_STOCK_V5_SHA256 =
   "33a7f704eda23dda9ccbd9eba1fda2f0589211e9c61ec9d1f9c797acc624ea44";
 export const VIVOX_PROXY_SHA256 =
-  "f67ec183ac66dfc8239094582f3479e41a4e5c6fb1ad2f7df4d03a9196117629";
+  "159a7f24ca2c7e99f3ea17b9a180dac593ed2fb92b1db2c10d9b4ea1ae8edee8";
+export const CROUCH_PARITY_MARKER_NAME = "rotk-crouch-parity.ini";
+
+const CROUCH_CLIENT_BUILD_ID = "h1z1-1.0.326.439939";
+const CROUCH_CLIENT_BUILD = SUPPORTED_CLIENT_BUILDS.find(
+  (build) => build.id === CROUCH_CLIENT_BUILD_ID,
+);
+if (!CROUCH_CLIENT_BUILD) {
+  throw new Error("The crouch patch has no matching supported H1Z1 build");
+}
+
+export const CROUCH_PARITY_MARKER_CONTENTS = [
+  "mode=patch-v2",
+  "animation=v11-ads-safe-pose-only-js-sine-idle400-200-move250",
+  "cameraScalePitch=disabled",
+  `h1z1Sha256=${CROUCH_CLIENT_BUILD.executableSha256.toUpperCase()}`,
+  `proxySha256=${VIVOX_PROXY_SHA256.toUpperCase()}`,
+  "",
+].join("\n");
 
 interface VivoxDeploymentPolicy {
   stockV4Sha256: string;
@@ -16,6 +35,9 @@ interface VivoxDeploymentPolicy {
   proxySha256: string;
   proxyMinBytes: number;
   proxyMaxBytes: number;
+  h1z1Sha256: string;
+  h1z1Bytes: number;
+  crouchMarkerContents: string;
 }
 
 const DEFAULT_POLICY: VivoxDeploymentPolicy = {
@@ -24,6 +46,9 @@ const DEFAULT_POLICY: VivoxDeploymentPolicy = {
   proxySha256: VIVOX_PROXY_SHA256,
   proxyMinBytes: 16_384,
   proxyMaxBytes: 2 * 1024 * 1024,
+  h1z1Sha256: CROUCH_CLIENT_BUILD.executableSha256,
+  h1z1Bytes: CROUCH_CLIENT_BUILD.executableSize,
+  crouchMarkerContents: CROUCH_PARITY_MARKER_CONTENTS,
 };
 
 async function sha256(filePath: string): Promise<string> {
@@ -36,6 +61,43 @@ async function sha256(filePath: string): Promise<string> {
 
 async function fileHash(filePath: string): Promise<string> {
   return sha256(filePath).catch(() => "");
+}
+
+async function atomicCopy(source: string, destination: string): Promise<void> {
+  const temporary = `${destination}.rotk-${randomUUID()}.tmp`;
+  try {
+    await copyFile(source, temporary, fsConstants.COPYFILE_EXCL);
+    await rename(temporary, destination);
+  } finally {
+    await rm(temporary, { force: true }).catch(() => undefined);
+  }
+}
+
+async function atomicWrite(destination: string, contents: string): Promise<void> {
+  const temporary = `${destination}.rotk-${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, contents, { encoding: "ascii", flag: "wx" });
+    await rename(temporary, destination);
+  } finally {
+    await rm(temporary, { force: true }).catch(() => undefined);
+  }
+}
+
+async function assertSupportedH1Z1(
+  root: string,
+  policy: VivoxDeploymentPolicy,
+): Promise<void> {
+  const executablePath = join(root, "H1Z1.exe");
+  const executable = await stat(executablePath).catch(() => null);
+  if (
+    !executable?.isFile() ||
+    executable.size !== policy.h1z1Bytes ||
+    await fileHash(executablePath) !== policy.h1z1Sha256
+  ) {
+    throw new Error(
+      "Cette version de H1Z1 n’est pas compatible avec le patch crouch ROTK obligatoire. Vérifie les fichiers du jeu dans Steam puis réessaie.",
+    );
+  }
 }
 
 async function assertBundledFiles(
@@ -68,13 +130,17 @@ async function deployVivoxCompatibilityWithPolicy(
   bundledRuntimePath: string,
   policy: VivoxDeploymentPolicy,
 ): Promise<void> {
-  // Validate both bundled artifacts before modifying the game installation.
+  // Validate the executable and both bundled artifacts before modifying the
+  // game installation. The native hook is intentionally tied to this exact
+  // BR1315 image and must never run against an unknown executable.
   await assertBundledFiles(bundledProxyPath, bundledRuntimePath, policy);
+  await assertSupportedH1Z1(root, policy);
 
   const activePath = join(root, "vivoxsdk_x64.dll");
   const backupPath = join(root, "vivoxsdk_x64.original.dll");
   const legacyBackupPath = join(root, "vivoxsdk_x64_original.dll");
   const v5Path = join(root, "vivoxsdk_x64_v5.dll");
+  const crouchMarkerPath = join(root, CROUCH_PARITY_MARKER_NAME);
 
   const active = await stat(activePath).catch(() => null);
   if (!active?.isFile()) {
@@ -87,9 +153,9 @@ async function deployVivoxCompatibilityWithPolicy(
   if (backupHash !== policy.stockV4Sha256) {
     const legacyBackupHash = await fileHash(legacyBackupPath);
     if (legacyBackupHash === policy.stockV4Sha256) {
-      await copyFile(legacyBackupPath, backupPath);
+      await atomicCopy(legacyBackupPath, backupPath);
     } else if (activeHash === policy.stockV4Sha256) {
-      await copyFile(activePath, backupPath);
+      await atomicCopy(activePath, backupPath);
     } else {
       throw new Error("La sauvegarde du SDK Vivox historique est invalide.");
     }
@@ -109,7 +175,7 @@ async function deployVivoxCompatibilityWithPolicy(
 
   // Repair an absent, stale, or corrupt Vivox 5 runtime from the validated copy.
   if (await fileHash(v5Path) !== policy.stockV5Sha256) {
-    await copyFile(bundledRuntimePath, v5Path);
+    await atomicCopy(bundledRuntimePath, v5Path);
   }
   if (await fileHash(v5Path) !== policy.stockV5Sha256) {
     throw new Error("La version Vivox 5 attendue est absente du client H1Z1.");
@@ -117,10 +183,27 @@ async function deployVivoxCompatibilityWithPolicy(
 
   // Avoid rewriting the proxy on every launch, but always verify the final state.
   if (activeHash !== policy.proxySha256) {
-    await copyFile(bundledProxyPath, activePath);
+    await atomicCopy(bundledProxyPath, activePath);
   }
   if (await fileHash(activePath) !== policy.proxySha256) {
     throw new Error("Le proxy vocal ROTK n'a pas \u00e9t\u00e9 copi\u00e9 correctement.");
+  }
+
+  // This marker is the native hook's explicit opt-in. There is no user-facing
+  // toggle: install, adoption and every launch repair it before H1Z1 starts.
+  if (
+    await readFile(crouchMarkerPath, "ascii").catch(() => "") !==
+    policy.crouchMarkerContents
+  ) {
+    await atomicWrite(crouchMarkerPath, policy.crouchMarkerContents);
+  }
+  if (
+    await readFile(crouchMarkerPath, "ascii").catch(() => "") !==
+    policy.crouchMarkerContents
+  ) {
+    throw new Error(
+      "Le patch crouch ROTK obligatoire n'a pas \u00e9t\u00e9 activ\u00e9 correctement.",
+    );
   }
 }
 
