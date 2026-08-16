@@ -32,9 +32,28 @@ Une installation terminée est mémorisée dans `%APPDATA%\ROTK Launcher\config.
 - échange HTTPS de cette clé durable contre un ticket court à usage unique, avec validation stricte du ROTKID, du GameAccountGUID et du SteamID renvoyés ;
 - mini-gateway Steam de session lié exclusivement à `127.0.0.1` pendant l’exécution du jeu : H1Z1 reçoit uniquement le ticket court, jamais la clé durable ;
 - shim `steam_api64.dll` open source, compilable de façon déterministe avec Zig ;
+- proxy Vivox 5 open source intégrant le patch crouch v11 obligatoire, vérifié et réparé avant chaque lancement ;
 - isolation Electron (`contextIsolation`, sandbox, IPC limité et navigation externe filtrée).
 
 La branche `new-server` cible le serveur GAME 2 ROTK `162.19.94.95` et ses listeners login `20042` à `20045`. Le futur manifeste runtime HTTPS signé remplacera cette configuration bornée sans exposer d’arguments arbitraires au renderer.
+
+## Patch crouch obligatoire
+
+Le launcher 1.4.0 déploie le hook crouch ADS-safe dans son proxy
+`vivoxsdk_x64.dll`. Il préserve la DLL Vivox historique, installe le runtime
+Vivox 5, puis crée `rotk-crouch-parity.ini` dans le client. Ces fichiers sont
+vérifiés et réparés pendant l’installation, lors de l’adoption d’un client
+isolé, avant l’attestation et une seconde fois juste avant le démarrage du jeu.
+Le lancement échoue si cet état ne peut pas être garanti.
+
+Le hook ne modifie pas `H1Z1.exe` sur disque. Il ne s’active qu’en mémoire sur
+le build BR1315 `1.0.326.439939`, après validation du SHA-256 du fichier, de
+l’en-tête PE et des signatures machine ciblées. Le hook caméra expérimental
+reste désactivé : seul le poids de pose crouch validé est remplacé afin de
+préserver les événements Morpheme utilisés par l’ADS.
+
+Le séquencement de release, le verrou serveur et le rollback sont documentés
+dans [`docs/CROUCH_PATCH_ROLLOUT.md`](docs/CROUCH_PATCH_ROLLOUT.md).
 
 ## Authentification du compte joueur
 
@@ -103,7 +122,7 @@ Pour générer uniquement un dossier de prévisualisation local non signé :
 npm run dist:dir
 ```
 
-La CI Windows fixe Zig à la version `0.15.2`, compile deux fois le shim et compare les SHA-256 obtenus avant de construire l’application. Les artefacts CI utilisent toujours le DLL recompilé depuis `native/steamshim/steam_api64.c`.
+La CI Windows fixe Zig à la version `0.15.2`, compile deux fois le shim et le proxy Vivox+crouch, puis compare les SHA-256 obtenus avant de construire l’application. Les artefacts CI utilisent toujours les DLL recompilés depuis leurs sources publiques.
 
 ## Architecture
 
@@ -113,6 +132,7 @@ La CI Windows fixe Zig à la version `0.15.2`, compile deux fois le shim et comp
 | `electron/` | processus principal, preload et services système |
 | `shared/` | contrats TypeScript partagés |
 | `native/steamshim/` | source C et script de build reproductible du shim |
+| `native/vivoxproxy/` | proxy vocal, compatibilité Vivox 5 et hook crouch v11 |
 | `resources/patches/` | DLL open source embarqué dans l’application |
 | `public/branding/` | identité visuelle propre au projet |
 | `tests/` | tests unitaires des règles critiques |
