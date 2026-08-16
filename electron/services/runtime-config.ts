@@ -37,7 +37,11 @@ export const RUNTIME_CONFIGS: Readonly<Record<ServerId, RuntimeConfig>> = Object
     // the client requires 80 — it only ever learns this URL from here, and the
     // port travels with it into every derived value below.
     gatewayOrigin: "http://162.19.94.95:8080",
-    voiceGrantOrigin: "https://vps-c717eb9e.vps.ovh.net",
+    // Le nom OVH par défaut du VPS de TEST était pinné ici : en production le
+    // certificat ne couvre pas ce nom et rien n'y sert /voice/v1, donc aucun
+    // client n'a jamais obtenu de grant. rotk.app est le vhost qui relaie
+    // désormais ces deux routes vers le Gateway en loopback.
+    voiceGrantOrigin: "https://rotk.app",
     loginHost: "162.19.94.95",
     loginPorts: [20042, 20043, 20044, 20045],
     websiteOrigin: "https://rotk.app",
@@ -51,7 +55,9 @@ export const RUNTIME_CONFIGS: Readonly<Record<ServerId, RuntimeConfig>> = Object
     // Same layout as GAME 2 on the test VPS: the game Gateway sits on 8080 and
     // Nginx terminates TLS for test.rotk.app on the same address.
     gatewayOrigin: "http://51.255.160.224:8080",
-    voiceGrantOrigin: "https://vps-c717eb9e.vps.ovh.net",
+    // Même contrat que GAME 2 : le grant se prend sur le vhost qui termine le
+    // TLS de cet environnement, jamais sur le nom OVH resté sans listener.
+    voiceGrantOrigin: "https://test.rotk.app",
     loginHost: "51.255.160.224",
     loginPorts: [20042, 20043, 20044, 20045],
     websiteOrigin: "https://test.rotk.app",
