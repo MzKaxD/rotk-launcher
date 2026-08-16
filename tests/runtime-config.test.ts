@@ -15,9 +15,10 @@ describe("public ROTK runtime", () => {
     // The Gateway moved off :80 so Nginx can own it for the website; the port
     // must travel into every URL the client is handed.
     expect(DEFAULT_RUNTIME_CONFIG.gatewayOrigin).toBe("http://162.19.94.95:8080");
-    expect(DEFAULT_RUNTIME_CONFIG.voiceGrantOrigin).toBe(
-      "https://vps-c717eb9e.vps.ovh.net",
-    );
+    // Le grant vocal doit viser un hôte que CET environnement sert vraiment :
+    // le nom OVH du VPS de test pinné ici auparavant n'avait ni certificat
+    // valide ni route, donc pas un seul joueur n'obtenait de voix.
+    expect(DEFAULT_RUNTIME_CONFIG.voiceGrantOrigin).toBe("https://rotk.app");
     expect(serverList(DEFAULT_RUNTIME_CONFIG)).toBe(
       "162.19.94.95:20042;162.19.94.95:20043;162.19.94.95:20044;162.19.94.95:20045",
     );
@@ -38,6 +39,7 @@ describe("public ROTK runtime", () => {
 
     expect(test.environment).toBe("development");
     expect(test.gatewayOrigin).toBe("http://51.255.160.224:8080");
+    expect(test.voiceGrantOrigin).toBe("https://test.rotk.app");
     expect(test.websiteOrigin).toBe("https://test.rotk.app");
     expect(test.launchTicketUrl).toBe("https://test.rotk.app/api/launcher/ticket");
     expect(test.attestationChallengeUrl).toBe(
@@ -93,9 +95,7 @@ describe("public ROTK runtime", () => {
     expect(args).toContain(
       "SteamGatewayUrl=http://127.0.0.1:49152/rest/auth/session/create",
     );
-    expect(args).toContain(
-      "VivoxGrantUrl=https://vps-c717eb9e.vps.ovh.net",
-    );
+    expect(args).toContain("VivoxGrantUrl=https://rotk.app");
     expect(args).toContain("CommandQueue:motd_uri=http://162.19.94.95:8080/");
     expect(args.some((argument) => (
       argument.includes("162.19.94.95:8080/rest/auth/session/create")
