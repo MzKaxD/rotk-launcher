@@ -87,6 +87,10 @@
           "**/*.dll",
           "**/*.sha256"
         ]
+      },
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
       }
     ],
     "win": {
