@@ -23,7 +23,7 @@ const contents = {
   stale: "stale-or-corrupt",
   marker: [
     "mode=patch-v2",
-    "animation=v11-test",
+    "animation=v12-test",
     "cameraScalePitch=disabled",
     "",
   ].join("\n"),

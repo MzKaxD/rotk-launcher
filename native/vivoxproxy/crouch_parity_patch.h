@@ -12,6 +12,8 @@
 #include <math.h>
 #include <stdarg.h>
 
+#include "crouch_state_cache.h"
+
 #define CROUCH_MARKER_NAME L"rotk-crouch-parity.ini"
 #define CROUCH_LOG_NAME L"rotk-crouch-parity.log"
 #define CROUCH_MOVE_NODE_ID 6834U
@@ -28,7 +30,6 @@
 #define CROUCH_IDLE_EXIT_SECONDS 0.20000000298023224
 #define CROUCH_MOVE_SECONDS 0.25
 #define CROUCH_MOVE_RECENT_SECONDS 0.10000000149011612
-#define CROUCH_STATE_CAPACITY 16U
 
 typedef enum crouch_mode {
     CROUCH_MODE_DISABLED = 0,
@@ -49,23 +50,12 @@ typedef uint16_t (*crouch_blend_weight_fn)(
     float sync_events_weight,
     unsigned char is_additive);
 
-typedef struct crouch_transition_state {
-    void *network;
-    float last_raw;
-    float last_control;
-    float last_output;
-    float start_output;
-    float target;
-    double duration_seconds;
-    LARGE_INTEGER start_counter;
-    LARGE_INTEGER last_move_counter;
-    BOOL initialized;
-    BOOL transitioning;
-    BOOL move_seen;
-} crouch_transition_state;
-
 static volatile LONG g_crouch_worker_started;
-static volatile LONG g_crouch_blend_call_count;
+static volatile LONG64 g_crouch_blend_call_count;
+static volatile LONG g_crouch_state_eviction_count;
+static volatile LONG g_crouch_state_pressure_count;
+static volatile LONG g_crouch_state_reset_count;
+static volatile LONG g_crouch_state_out_of_order_count;
 static uintptr_t g_crouch_image_base;
 static void *g_crouch_original_blend_trampoline;
 static BOOL g_crouch_enable_camera;
@@ -368,27 +358,6 @@ static BOOL crouch_prepare_trampoline(const void *target,
     return TRUE;
 }
 
-static crouch_transition_state *crouch_get_state(void *network) {
-    size_t index;
-    crouch_transition_state *empty = NULL;
-
-    for (index = 0U; index < CROUCH_STATE_CAPACITY; ++index) {
-        if (g_crouch_states[index].network == network) {
-            return &g_crouch_states[index];
-        }
-        if (empty == NULL && g_crouch_states[index].network == NULL) {
-            empty = &g_crouch_states[index];
-        }
-    }
-    if (empty == NULL) {
-        index = ((uintptr_t)network >> 4U) % CROUCH_STATE_CAPACITY;
-        empty = &g_crouch_states[index];
-    }
-    memset(empty, 0, sizeof(*empty));
-    empty->network = network;
-    return empty;
-}
-
 static BOOL crouch_read_exact(const void *address,
                               void *destination,
                               size_t length) {
@@ -416,9 +385,14 @@ static BOOL crouch_read_exact(const void *address,
  * Reading this binary CP avoids treating out-of-order worker results from the
  * mobile Blend2 as fresh crouch commands.
  */
-static BOOL crouch_read_state_control(void *network, float *value) {
+static BOOL crouch_read_state_control(void *network,
+                                      float *value,
+                                      uintptr_t *generation,
+                                      uintptr_t *control_generation) {
     uintptr_t node_bins = 0U;
+    uintptr_t confirmed_node_bins = 0U;
     uintptr_t pin_entries = 0U;
+    uintptr_t confirmed_pin_entries = 0U;
     uintptr_t attrib = 0U;
     float control = 0.0f;
     const uintptr_t pin_offset =
@@ -443,19 +417,52 @@ static BOOL crouch_read_state_control(void *network, float *value) {
             (const void *)(attrib + 0x10U),
             &control,
             sizeof(control)) ||
-        !(control >= 0.0f && control <= 1.0f)) {
+        !(control >= 0.0f && control <= 1.0f) ||
+        !crouch_read_exact(
+            (const uint8_t *)network + 0x08U,
+            &confirmed_node_bins,
+            sizeof(confirmed_node_bins)) ||
+        confirmed_node_bins != node_bins ||
+        !crouch_read_exact(
+            (const void *)(confirmed_node_bins + pin_offset),
+            &confirmed_pin_entries,
+            sizeof(confirmed_pin_entries)) ||
+        confirmed_pin_entries != pin_entries) {
         return FALSE;
     }
     *value = control;
+    *generation = node_bins;
+    *control_generation = pin_entries;
     return TRUE;
+}
+
+static BOOL crouch_validate_state_identity(
+    void *network,
+    uintptr_t generation,
+    uintptr_t control_generation) {
+    uintptr_t confirmed_generation = 0U;
+    uintptr_t confirmed_control_generation = 0U;
+    const uintptr_t pin_offset =
+        0x10U + (uintptr_t)CROUCH_CONTROL_NODE_ID * 0x28U;
+
+    return crouch_read_exact(
+               (const uint8_t *)network + 0x08U,
+               &confirmed_generation,
+               sizeof(confirmed_generation)) &&
+        confirmed_generation == generation &&
+        crouch_read_exact(
+            (const void *)(confirmed_generation + pin_offset),
+            &confirmed_control_generation,
+            sizeof(confirmed_control_generation)) &&
+        confirmed_control_generation == control_generation;
 }
 
 static float crouch_current_transition_value(
     crouch_transition_state *state,
-    LARGE_INTEGER now,
+    int64_t now_counter,
     BOOL *completed) {
     double duration = state->duration_seconds;
-    double elapsed = (double)(now.QuadPart - state->start_counter.QuadPart) /
+    double elapsed = (double)(now_counter - state->start_counter) /
                      (double)g_crouch_qpc_frequency.QuadPart;
     double unit;
     double blend;
@@ -477,6 +484,11 @@ static float crouch_current_transition_value(
     return (float)((double)state->start_output +
                    ((double)state->target -
                     (double)state->start_output) * blend);
+}
+
+static BOOL crouch_should_log_cache_count(LONG count) {
+    return count > 0L &&
+        (count <= 8L || (count & (count - 1L)) == 0L);
 }
 
 static uint16_t crouch_blend_weight_hook(
@@ -507,8 +519,13 @@ static uint16_t crouch_blend_weight_hook(
     BOOL log_started = FALSE;
     BOOL log_completed = FALSE;
     LARGE_INTEGER now;
+    uintptr_t network_generation = 0U;
+    uintptr_t control_generation = 0U;
+    int64_t stale_after_ticks;
     crouch_transition_state *state;
-    LONG call_index;
+    crouch_state_cache_lookup cache_lookup;
+    LONG cache_event_count = 0L;
+    LONG64 call_sequence;
 
     if (original == NULL) {
         return 0xffffU;
@@ -557,9 +574,12 @@ static uint16_t crouch_blend_weight_hook(
             sync_events_weight,
             is_additive);
     }
-    call_index = InterlockedIncrement(&g_crouch_blend_call_count);
-    QueryPerformanceCounter(&now);
-    if (!crouch_read_state_control(network, &control)) {
+    call_sequence = InterlockedIncrement64(&g_crouch_blend_call_count);
+    if (!crouch_read_state_control(
+            network,
+            &control,
+            &network_generation,
+            &control_generation)) {
         return original(
             attrib_blend_weights,
             node_child_weights,
@@ -573,9 +593,81 @@ static uint16_t crouch_blend_weight_hook(
             is_additive);
     }
     AcquireSRWLockExclusive(&g_crouch_state_lock);
-    state = crouch_get_state(network);
+    if (!crouch_validate_state_identity(
+            network,
+            network_generation,
+            control_generation)) {
+        ReleaseSRWLockExclusive(&g_crouch_state_lock);
+        return original(
+            attrib_blend_weights,
+            node_child_weights,
+            active_node_connections,
+            network,
+            node_def,
+            trajectory_weight,
+            events_weight,
+            sampled_events_weight,
+            sync_events_weight,
+            is_additive);
+    }
+    QueryPerformanceCounter(&now);
+    stale_after_ticks = (int64_t)(
+        CROUCH_STATE_STALE_SECONDS *
+        (double)g_crouch_qpc_frequency.QuadPart +
+        0.5);
+    state = crouch_state_cache_acquire(
+        g_crouch_states,
+        CROUCH_STATE_CAPACITY,
+        network,
+        network_generation,
+        control_generation,
+        now.QuadPart,
+        stale_after_ticks,
+        (int64_t)call_sequence,
+        &cache_lookup);
+    if (state == NULL) {
+        BOOL out_of_order =
+            cache_lookup.event == CROUCH_STATE_CACHE_OUT_OF_ORDER;
+
+        cache_event_count = InterlockedIncrement(out_of_order
+            ? &g_crouch_state_out_of_order_count
+            : &g_crouch_state_pressure_count);
+        ReleaseSRWLockExclusive(&g_crouch_state_lock);
+        if (crouch_should_log_cache_count(cache_event_count)) {
+            crouch_log(
+                "[crouch-parity] state cache %s count=%ld "
+                "capacity=%u network=%p generation=%p controlGeneration=%p; "
+                "stock blend retained",
+                out_of_order ? "out-of-order" : "pressure",
+                (long)cache_event_count,
+                (unsigned int)CROUCH_STATE_CAPACITY,
+                network,
+                (void *)network_generation,
+                (void *)control_generation);
+        }
+        return original(
+            attrib_blend_weights,
+            node_child_weights,
+            active_node_connections,
+            network,
+            node_def,
+            trajectory_weight,
+            events_weight,
+            sampled_events_weight,
+            sync_events_weight,
+            is_additive);
+    }
+    if (cache_lookup.event == CROUCH_STATE_CACHE_EVICTED) {
+        cache_event_count = InterlockedIncrement(
+            &g_crouch_state_eviction_count);
+    } else if (
+        cache_lookup.event == CROUCH_STATE_CACHE_STALE_RESET ||
+        cache_lookup.event == CROUCH_STATE_CACHE_GENERATION_RESET) {
+        cache_event_count = InterlockedIncrement(
+            &g_crouch_state_reset_count);
+    }
     if (node_id == CROUCH_MOVE_NODE_ID) {
-        state->last_move_counter = now;
+        state->last_move_counter = now.QuadPart;
         state->move_seen = TRUE;
     }
     if (!state->initialized) {
@@ -587,7 +679,8 @@ static uint16_t crouch_blend_weight_hook(
         state->start_output = desired;
         state->target = desired;
         state->duration_seconds = 0.0;
-        state->start_counter = now;
+        state->start_counter = now.QuadPart;
+        state->transition_end_counter = 0;
         state->initialized = TRUE;
         output = desired;
     } else {
@@ -595,9 +688,13 @@ static uint16_t crouch_blend_weight_hook(
         float desired = control >= 0.5f ? 1.0f : 0.0f;
 
         if (state->transitioning) {
-            output = crouch_current_transition_value(state, now, &completed);
+            output = crouch_current_transition_value(
+                state,
+                now.QuadPart,
+                &completed);
             if (completed) {
                 state->transitioning = FALSE;
+                state->transition_end_counter = 0;
                 log_completed = TRUE;
                 logged_complete_target = state->target;
             }
@@ -608,7 +705,7 @@ static uint16_t crouch_blend_weight_hook(
             if (desired != state->target) {
                 double since_move = state->move_seen
                     ? (double)(now.QuadPart -
-                               state->last_move_counter.QuadPart) /
+                               state->last_move_counter) /
                           (double)g_crouch_qpc_frequency.QuadPart
                     : CROUCH_MOVE_RECENT_SECONDS + 1.0;
 
@@ -622,7 +719,12 @@ static uint16_t crouch_blend_weight_hook(
                     : (desired > 0.5f
                         ? CROUCH_IDLE_ENTER_SECONDS
                         : CROUCH_IDLE_EXIT_SECONDS);
-                state->start_counter = now;
+                state->start_counter = now.QuadPart;
+                state->transition_end_counter = now.QuadPart +
+                    (int64_t)(
+                        state->duration_seconds *
+                        (double)g_crouch_qpc_frequency.QuadPart +
+                        0.5);
                 state->transitioning = TRUE;
                 output = state->start_output;
                 log_started = TRUE;
@@ -638,6 +740,30 @@ static uint16_t crouch_blend_weight_hook(
         state->last_output = output;
     }
     ReleaseSRWLockExclusive(&g_crouch_state_lock);
+    if ((cache_lookup.event == CROUCH_STATE_CACHE_EVICTED ||
+         cache_lookup.event == CROUCH_STATE_CACHE_STALE_RESET ||
+         cache_lookup.event == CROUCH_STATE_CACHE_GENERATION_RESET) &&
+        crouch_should_log_cache_count(cache_event_count)) {
+        const char *event_name = cache_lookup.event == CROUCH_STATE_CACHE_EVICTED
+            ? "stale-eviction"
+            : (cache_lookup.event == CROUCH_STATE_CACHE_GENERATION_RESET
+                ? "generation-reset"
+                : "stale-reset");
+
+        crouch_log(
+            "[crouch-parity] state cache %s count=%ld capacity=%u "
+            "oldNetwork=%p oldGeneration=%p oldControlGeneration=%p "
+            "network=%p generation=%p controlGeneration=%p",
+            event_name,
+            (long)cache_event_count,
+            (unsigned int)CROUCH_STATE_CAPACITY,
+            cache_lookup.previous_network,
+            (void *)cache_lookup.previous_generation,
+            (void *)cache_lookup.previous_control_generation,
+            network,
+            (void *)network_generation,
+            (void *)control_generation);
+    }
     if (log_completed) {
         crouch_log(
             "[crouch-parity] blend transition complete "
@@ -659,12 +785,12 @@ static uint16_t crouch_blend_weight_hook(
             logged_duration_ms,
             logged_moving ? "yes" : "no");
     }
-    if (call_index <= 16L) {
+    if (call_sequence <= 16LL) {
         crouch_log(
-            "[crouch-parity] blend hook call=%ld node=%u raw=%.6f "
+            "[crouch-parity] blend hook call=%lld node=%u raw=%.6f "
             "events=%.6f sampled=%.6f sync=%.6f control=%.6f "
             "output=%.6f network=%p trampoline=%p",
-            (long)call_index,
+            (long long)call_sequence,
             (unsigned int)node_id,
             (double)raw,
             (double)events_weight,
@@ -782,12 +908,14 @@ static int crouch_install_runtime_patch(void) {
         return -1;
     }
     crouch_log(
-        "[crouch-parity] patch-v2 ADS-safe installed image=%p "
+        "[crouch-parity] patch-v2 ADS-safe v12 installed image=%p "
         "animationRva=0x%llx cameraRva=0x%llx "
-        "idleEnterMs=400 idleExitMs=200 moveMs=250 camera=%s",
+        "idleEnterMs=400 idleExitMs=200 moveMs=250 "
+        "stateCapacity=%u staleMs=2000 camera=%s",
         (void *)g_crouch_image_base,
         (unsigned long long)CROUCH_BLEND_WEIGHT_RVA,
         (unsigned long long)CROUCH_SCALE_PITCH_RVA,
+        (unsigned int)CROUCH_STATE_CAPACITY,
         g_crouch_enable_camera ? "direct" : "disabled");
     return 1;
 }
@@ -797,7 +925,7 @@ static DWORD WINAPI crouch_patch_worker(LPVOID parameter) {
     BOOL node_ready = FALSE;
 
     (void)parameter;
-    crouch_log("[crouch-parity] patch-v2 ADS-safe worker started");
+    crouch_log("[crouch-parity] patch-v2 ADS-safe v12 worker started");
     if (!crouch_validate_h1z1_image(&g_crouch_image_base)) {
         return 0U;
     }
