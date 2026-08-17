@@ -2,7 +2,7 @@
 
 ## Scope
 
-ROTK Launcher 1.4.1 ships the ADS-safe crouch parity v11 hook inside the
+ROTK Launcher 1.4.2 ships the ADS-safe crouch parity v12 hook inside the
 open-source Vivox 5 compatibility proxy. The launcher does not patch
 `H1Z1.exe` on disk.
 
@@ -13,7 +13,7 @@ The supported client is pinned to:
 - `H1Z1.exe` SHA-256:
   `5F5A4922B0671E4ED8FD415E753BE096EF7A17E360AE80E025F11544C8DB9261`;
 - Vivox+crouch proxy SHA-256:
-  `13C5E2FA603A9D31588073270F63D492141C8D3AFDDFBC2DB18856456A65CADA`.
+  `B364DA8637E425AACEB078071B034A7D91DFE7418B653355DF8E7B579118ED83`.
 
 The native hook also validates the BR1315 PE timestamp, image size and target
 machine-code signatures before modifying memory. An unknown client build is
@@ -44,24 +44,28 @@ immediately before spawning H1Z1.
 
 ```ini
 mode=patch-v2
-animation=v11-ads-safe-pose-only-js-sine-idle400-200-move250
+animation=v12-ads-safe-cache256-lru2s-pose-only-js-sine-idle400-200-move250
 cameraScalePitch=disabled
 h1z1Sha256=5F5A4922B0671E4ED8FD415E753BE096EF7A17E360AE80E025F11544C8DB9261
-proxySha256=13C5E2FA603A9D31588073270F63D492141C8D3AFDDFBC2DB18856456A65CADA
+proxySha256=B364DA8637E425AACEB078071B034A7D91DFE7418B653355DF8E7B579118ED83
 ```
 
-The direct camera hook must remain disabled. The v11 hook replaces only the
+The direct camera hook must remain disabled. The v12 hook replaces only the
 trajectory/transform weight and preserves Morpheme event, sampled-event and
 sync-event weights, which is the ADS-safe behavior validated in the client.
+Its fixed 256-entry store keys each transition by the animation network and
+its node-bin generation. A full store only reclaims the least-recently-seen
+stale entry after its real transition deadline; otherwise the new call fails
+open to the stock graph without mutating any live transition.
 
 ## Release order
 
 1. Merge the launcher changes into `main`.
-2. Publish the signed `v1.4.1` launcher release and its update metadata.
-3. Verify an existing 1.3.0 installation upgrades and repairs an old proxy.
+2. Publish the `v1.4.2` launcher release, checksums, provenance and update metadata.
+3. Verify an existing 1.4.1 installation upgrades and repairs the v11 proxy.
 4. Verify one fresh Steam-copy installation and one adopted isolated client.
 5. Only after the update is publicly available, set the account/ticket
-   service minimum launcher version to `1.4.1`.
+   service minimum launcher version to `1.4.2`.
 
 The last step is what makes the patch mandatory for every server-authenticated
 player. Enabling the server gate before the release is downloadable would
@@ -73,6 +77,8 @@ block all players.
 - `npm audit --omit=dev --audit-level=high`;
 - `npm run dist`;
 - two proxy builds from different output paths must have the same SHA-256;
+- the optimized native cache harness must pass its 200-network handoff,
+  collision, TTL, fail-open and multithreaded tests;
 - all unit tests must pass;
 - the packaged proxy hash must match the source rebuild and sidecar;
 - migration from the legacy backup name and repair after deliberate corruption

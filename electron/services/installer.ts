@@ -251,7 +251,7 @@ export async function adoptExistingClient(
     sourceRoot: existingMarker?.sourceRoot ?? root,
     installedAt: existingMarker?.installedAt ?? new Date().toISOString(),
     launcherVersion: request.launcherVersion,
-    patchVersion: "nosteam-shim-1+vivox5-compat-1+crouch-parity-v11",
+    patchVersion: "nosteam-shim-1+vivox5-compat-1+crouch-parity-v12",
     criticalHashes,
   };
   const markerPath = join(root, INSTALL_MARKER_NAME);
@@ -391,7 +391,7 @@ export async function installClient(request: InstallRequest): Promise<Installati
       sourceRoot,
       installedAt: new Date().toISOString(),
       launcherVersion: request.launcherVersion,
-      patchVersion: "nosteam-shim-1+vivox5-compat-1+crouch-parity-v11",
+      patchVersion: "nosteam-shim-1+vivox5-compat-1+crouch-parity-v12",
       criticalHashes: sourceCriticalHashes,
     };
     await writeFile(join(stagingRoot, INSTALL_MARKER_NAME), `${JSON.stringify(marker, null, 2)}\n`, {
