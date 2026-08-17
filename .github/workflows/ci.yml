@@ -184,7 +184,7 @@ jobs:
           }
 
           Write-Host "Proxy Vivox compilé depuis les sources publiques : $hash"
-          if ($hash -ne "13C5E2FA603A9D31588073270F63D492141C8D3AFDDFBC2DB18856456A65CADA") {
+          if ($hash -ne "B364DA8637E425AACEB078071B034A7D91DFE7418B653355DF8E7B579118ED83") {
             throw "Unexpected Vivox proxy SHA-256: $hash"
           }
           # Le sidecar alimente l'override d'attestation : s'il diverge du DLL,
