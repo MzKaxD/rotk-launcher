@@ -1943,15 +1943,7 @@ button:focus-visible {
   accent-color: var(--signal);
 }
 
-@media (max-width: 1160px) {
-  .activity-center {
-    width: min(650px, calc(100vw - 250px));
-  }
-
-  .activity-card__heading span {
-    display: none;
-  }
-
+@media (max-width: 1240px) {
   .launcher-footer {
     grid-template-columns: minmax(220px, 1fr) minmax(320px, 1.2fr) 96px 210px;
   }
@@ -1966,6 +1958,16 @@ button:focus-visible {
   }
 
   .server-select__trigger > .server-population small {
+    display: none;
+  }
+}
+
+@media (max-width: 1160px) {
+  .activity-center {
+    width: min(650px, calc(100vw - 250px));
+  }
+
+  .activity-card__heading span {
     display: none;
   }
 
