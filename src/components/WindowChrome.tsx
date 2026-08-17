@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Check, ChevronDown, ExternalLink, Minus, X } from "lucide-react";
+import { Check, ChevronDown, ExternalLink, Minus, Wrench, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AppLocale } from "../../shared/locale";
 import { BrandMark } from "./BrandMark";
@@ -7,6 +7,9 @@ import { useI18n } from "../i18n";
 
 interface WindowChromeProps {
   appVersion: string;
+  devToolsEnabled?: boolean;
+  devToolsOpen?: boolean;
+  onToggleDevTools?(): void;
 }
 
 const LANGUAGE_OPTIONS: Array<{ locale: AppLocale }> = [
@@ -118,7 +121,12 @@ export function LanguagePicker({ placement = "chrome" }: { placement?: "chrome" 
   );
 }
 
-export function WindowChrome({ appVersion }: WindowChromeProps) {
+export function WindowChrome({
+  appVersion,
+  devToolsEnabled = false,
+  devToolsOpen = false,
+  onToggleDevTools,
+}: WindowChromeProps) {
   const { copy } = useI18n();
   return (
     <header className="window-chrome">
@@ -128,6 +136,16 @@ export function WindowChrome({ appVersion }: WindowChromeProps) {
         <span className="window-chrome__section">{copy.chrome.launcher}</span>
       </div>
       <div className="window-chrome__tools">
+        {devToolsEnabled && (
+          <button
+            type="button"
+            className={`chrome-link${devToolsOpen ? " is-active" : ""}`}
+            aria-pressed={devToolsOpen}
+            onClick={onToggleDevTools}
+          >
+            {copy.chrome.devTools} <Wrench size={13} strokeWidth={1.8} />
+          </button>
+        )}
         <button
           type="button"
           className="chrome-link"

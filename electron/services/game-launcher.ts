@@ -10,6 +10,7 @@ import { validateInstallDestination } from "./path-policy.js";
 import type { PlayerIdentity } from "./player-identity.js";
 import { startLocalSessionGateway } from "./session-gateway.js";
 import { readInstallationMarker } from "./installer.js";
+import type { CompanionObservation } from "./companion-process-scan.js";
 import {
   assertLaunchTicketFresh,
   createLaunchTicket,
@@ -52,6 +53,8 @@ export interface LaunchRequest {
   launcherVersion?: string;
   /** Raw hardware fingerprint; the server hashes it (see machine-identity.ts). */
   hwid?: Record<string, string>;
+  /** Flagged companion processes only; the full list never leaves this machine. */
+  companionObservation?: CompanionObservation;
   onExit(exitCode: number | null): void;
 }
 
@@ -65,10 +68,21 @@ export interface LaunchRequest {
 function ticketRequestOptions(
   request: LaunchRequest,
   outcome: AttestationOutcome,
-): { attestation?: unknown; attestationUnavailableReason?: string; launcherVersion?: string; hwid?: Record<string, string> } {
-  const base: { launcherVersion?: string; hwid?: Record<string, string> } = {};
+): {
+  attestation?: unknown;
+  attestationUnavailableReason?: string;
+  launcherVersion?: string;
+  hwid?: Record<string, string>;
+  companionObservation?: CompanionObservation;
+} {
+  const base: {
+    launcherVersion?: string;
+    hwid?: Record<string, string>;
+    companionObservation?: CompanionObservation;
+  } = {};
   if (request.launcherVersion) base.launcherVersion = request.launcherVersion;
   if (request.hwid && Object.keys(request.hwid).length > 0) base.hwid = request.hwid;
+  if (request.companionObservation) base.companionObservation = request.companionObservation;
   if (outcome.status === "attested") return { ...base, attestation: outcome.block };
   if (outcome.status === "unavailable") {
     return { ...base, attestationUnavailableReason: outcome.reason };
@@ -249,9 +263,15 @@ function waitForStableStartup(
 
 export class GameLauncher {
   private child: ChildProcess | null = null;
+  private sessionGatewayOpen = false;
 
   isRunning(): boolean {
     return this.child !== null && this.child.exitCode === null && !this.child.killed;
+  }
+
+  /** Whether the local session gateway is up. Never exposes its URL or ticket. */
+  isSessionGatewayListening(): boolean {
+    return this.sessionGatewayOpen;
   }
 
   async launch(request: LaunchRequest): Promise<number> {
@@ -287,6 +307,7 @@ export class GameLauncher {
       ticketRequestOptions(request, outcome),
     );
     let sessionGateway = await startLocalSessionGateway(launchIdentity.ticket);
+    this.sessionGatewayOpen = true;
 
     try {
       await prepareClient(
@@ -347,6 +368,7 @@ export class GameLauncher {
         if (finalized) return;
         finalized = true;
         if (this.child === child) this.child = null;
+        this.sessionGatewayOpen = false;
         void sessionGateway.close().catch(() => undefined);
         request.onExit(code);
       };
@@ -360,6 +382,7 @@ export class GameLauncher {
       child.unref();
       return child.pid;
     } catch (error) {
+      this.sessionGatewayOpen = false;
       await sessionGateway.close().catch(() => undefined);
       throw error;
     }

@@ -1,5 +1,6 @@
 import { isValidLaunchTicket } from "../../shared/launch-ticket.js";
 import { isValidPlayerKey, normalizePlayerKey } from "../../shared/player-key.js";
+import type { CompanionObservation } from "./companion-process-scan.js";
 
 const DEFAULT_TIMEOUT_MS = 8_000;
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -52,6 +53,11 @@ interface TicketRequestOptions {
    * sees hashed.
    */
   hwid?: Record<string, string>;
+  /**
+   * User-mode observation of companion processes. Only flagged names ride
+   * along; the full process list stays on the workstation.
+   */
+  companionObservation?: CompanionObservation;
 }
 
 function validateEndpoint(value: string): URL {
@@ -251,6 +257,7 @@ export async function createLaunchTicket(
           ...(options.launcherVersion ? { launcherVersion: options.launcherVersion } : {}),
           ...(options.hwid && Object.keys(options.hwid).length > 0 ? { hwid: options.hwid } : {}),
           ...(options.attestation ? { attestation: options.attestation } : {}),
+          ...(options.companionObservation ? { companionObservation: options.companionObservation } : {}),
         }),
         cache: "no-store",
         redirect: "error",

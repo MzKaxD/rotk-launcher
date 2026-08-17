@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { LauncherSnapshot, OperationResult } from "../shared/contracts";
+import { DevToolsPanel } from "./components/DevToolsPanel";
 import { GlobalActivityCenter } from "./components/GlobalActivityCenter";
 import { InstallPanel } from "./components/InstallPanel";
 import { LauncherFooter } from "./components/LauncherFooter";
@@ -14,6 +15,7 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<LauncherSnapshot | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [identityOpen, setIdentityOpen] = useState(false);
+  const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [transientError, setTransientError] = useState<string | null>(null);
   const [detectAttempted, setDetectAttempted] = useState(false);
@@ -57,6 +59,20 @@ export default function App() {
     void window.rotk.detectSource();
   }, [setupOpen, detectAttempted, snapshot]);
 
+  useEffect(() => {
+    if (!snapshot?.devTools) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.shiftKey && event.key.toLocaleLowerCase("en-US") === "d") {
+        event.preventDefault();
+        setDevToolsOpen((value) => !value);
+        setSetupOpen(false);
+        setIdentityOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [snapshot?.devTools]);
+
   const perform = useCallback(async (operation: () => Promise<OperationResult<unknown>>) => {
     setBusy(true);
     setTransientError(null);
@@ -91,7 +107,16 @@ export default function App() {
 
   return (
     <main className="launcher-shell">
-      <WindowChrome appVersion={snapshot.appVersion} />
+      <WindowChrome
+        appVersion={snapshot.appVersion}
+        devToolsEnabled={Boolean(snapshot.devTools)}
+        devToolsOpen={devToolsOpen}
+        onToggleDevTools={() => {
+          setDevToolsOpen((value) => !value);
+          setSetupOpen(false);
+          setIdentityOpen(false);
+        }}
+      />
       <NewsCarousel updates={snapshot.updates} />
       <GlobalActivityCenter snapshot={snapshot} />
       {(transientError || snapshot.error) && (
@@ -113,10 +138,12 @@ export default function App() {
         onPrimary={onPrimary}
         onSetup={() => {
           setIdentityOpen(false);
+          setDevToolsOpen(false);
           setSetupOpen(true);
         }}
         onIdentity={() => {
           setSetupOpen(false);
+          setDevToolsOpen(false);
           setIdentityOpen(true);
         }}
         onSelectLaunchProfile={(serverId, role) =>
@@ -139,6 +166,11 @@ export default function App() {
         onVerifyAssets={() => void perform(() => window.rotk.verifyAssets())}
         onRestoreAssets={() => void perform(() => window.rotk.restoreVanillaAssets())}
         onToggleAssetSync={(enabled) => void perform(() => window.rotk.setAssetSyncEnabled(enabled))}
+      />
+      <DevToolsPanel
+        snapshot={snapshot}
+        open={devToolsOpen && Boolean(snapshot.devTools)}
+        onClose={() => setDevToolsOpen(false)}
       />
     </main>
   );

@@ -22,6 +22,7 @@ export interface Copy {
     launcher: string;
     updates: string;
     build: string;
+    devTools: string;
     minimize: string;
     close: string;
   };
@@ -170,6 +171,127 @@ export interface Copy {
     restore: string;
     autoSync: string;
   };
+  devTools: {
+    panelLabel: string;
+    eyebrow: string;
+    title: string;
+    intro: string;
+    close: string;
+    copy: string;
+    copied: string;
+    copyFailed: string;
+    openUserData: string;
+    openLogs: string;
+    openGameLogs: string;
+    openSessions: string;
+    captureSession: string;
+    capturedSession: string;
+    clearLogs: string;
+    emptyLogs: string;
+    emptyCombat: string;
+    emptyKillFeed: string;
+    chromium: string;
+    reload: string;
+    revalidate: string;
+    scanCompanion: string;
+    scannedCompanion: string;
+    exportFile: string;
+    exported: string;
+    yes: string;
+    no: string;
+    listening: string;
+    idle: string;
+    companionNote: string;
+    combatNote: string;
+    killFeedNote: string;
+    ipBanNote: string;
+    ipBanWarning: string;
+    remoteSessionsNote: string;
+    remoteSessionsUnavailable: string;
+    remoteSessionsForbidden: string;
+    remoteSessionsIdle: string;
+    emptyRemoteSessions: string;
+    preferTestServer: string;
+    live: string;
+    emptyDefinitions: string;
+    emptyFlags: string;
+    emptyConnections: string;
+    emptyIpBans: string;
+    banIp: string;
+    bannedIp: string;
+    sections: {
+      runtime: string;
+      paths: string;
+      launch: string;
+      identity: string;
+      logs: string;
+      security: string;
+      endpoints: string;
+      health: string;
+      companion: string;
+      combat: string;
+      killFeed: string;
+      ipBans: string;
+      remoteSessions: string;
+      definitions: string;
+      clientConfig: string;
+    };
+    fields: {
+      version: string;
+      electron: string;
+      chrome: string;
+      node: string;
+      isolatedData: string;
+      vite: string;
+      userData: string;
+      appPath: string;
+      logsRoot: string;
+      installation: string;
+      realPath: string;
+      source: string;
+      destination: string;
+      phase: string;
+      pid: string;
+      running: string;
+      canPlay: string;
+      updateRequired: string;
+      gateway: string;
+      attestation: string;
+      server: string;
+      role: string;
+      environment: string;
+      website: string;
+      assets: string;
+      launcherUpdate: string;
+      sandbox: string;
+      isolation: string;
+      encryption: string;
+      gatewayOrigin: string;
+      voice: string;
+      login: string;
+      ticketUrl: string;
+      challengeUrl: string;
+      marker: string;
+      buildId: string;
+      installedAt: string;
+      matchesConfig: string;
+      scanStatus: string;
+      scannedAt: string;
+      processCount: string;
+      flagCount: string;
+      player: string;
+      ip: string;
+      seenAt: string;
+      banReason: string;
+      kills: string;
+      deaths: string;
+      headshots: string;
+      killGap: string;
+    };
+    attestation: Record<"idle" | "attested" | "not-applicable" | "unavailable", string>;
+    companionStatus: Record<"idle" | "ok" | "unavailable", string>;
+    companionCategory: Record<"cheat" | "injector" | "debugger", string>;
+  };
 }
 
 const COPY: Record<AppLocale, Copy> = {
@@ -184,6 +306,7 @@ const COPY: Record<AppLocale, Copy> = {
       launcher: "LAUNCHER",
       updates: "DEV UPDATES",
       build: "BUILD",
+      devTools: "DEV",
       minimize: "Minimize",
       close: "Close",
     },
@@ -364,6 +487,140 @@ const COPY: Record<AppLocale, Copy> = {
       restore: "RESTORE VANILLA CLIENT",
       autoSync: "Update the custom assets automatically",
     },
+    devTools: {
+      panelLabel: "ROTK launcher developer tools",
+      eyebrow: "OPERATOR TOOLS",
+      title: "DEV TOOLS",
+      intro: "Operator diagnostics for this launcher. Player keys, launch tickets and the session gateway URL are never shown.",
+      close: "Close developer tools",
+      copy: "COPY DIAGNOSTICS",
+      copied: "Redacted diagnostics copied.",
+      copyFailed: "Could not copy diagnostics.",
+      openUserData: "OPEN USER DATA",
+      openLogs: "OPEN LAUNCHER LOGS",
+      openGameLogs: "OPEN GAME LOGS",
+      openSessions: "OPEN SESSIONS",
+      captureSession: "CAPTURE SESSION",
+      capturedSession: "Session dossier written.",
+      clearLogs: "CLEAR LOG",
+      emptyLogs: "No launcher events recorded yet.",
+      emptyCombat: "No lines in this combat log yet.",
+      emptyKillFeed: "No kills in the current KillFeed window.",
+      chromium: "CHROMIUM INSPECTOR",
+      reload: "RELOAD UI",
+      revalidate: "REVALIDATE INSTALL",
+      scanCompanion: "SCAN PROCESSES",
+      scannedCompanion: "Companion process scan complete.",
+      exportFile: "EXPORT JSON",
+      exported: "Diagnostics written to user data.",
+      yes: "YES",
+      no: "NO",
+      listening: "LISTENING",
+      idle: "IDLE",
+      companionNote: "User-mode heuristics only. Absence of flags is not proof of a clean machine. The account service decides what a flag means.",
+      combatNote: "Live tails from this installation. Other players' machines are not visible here.",
+      killFeedNote: "Parsed from this machine's KillFeed.log. Names only — not a ban list. Tight gaps are highlighted for review.",
+      ipBanNote: "Local-zone joins on this PC. Live GAME 2 / TEST IPs come from the account service when this key is a moderator.",
+      ipBanWarning: "IP bans can hit everyone behind the same NAT or VPN. Hardware identity already rides with launch tickets; that is the stronger layer for new accounts.",
+      remoteSessionsNote: "Polled from the selected server's account service. The server decides who is a moderator. Regular player keys never receive this list.",
+      remoteSessionsUnavailable: "Live connecting IPs are not available from the account service yet. They will appear here for moderators once ROTK enables that on this server.",
+      remoteSessionsForbidden: "This launcher key is not a moderator on that server.",
+      remoteSessionsIdle: "Add a launcher key to request live sessions for this server.",
+      emptyRemoteSessions: "No live sessions returned yet.",
+      preferTestServer: "This unpackaged launcher is pointed at GAME 2 (production). Use ROTK TEST for iteration when that account key is available.",
+      live: "LIVE",
+      emptyDefinitions: "No definition loads recorded yet.",
+      emptyFlags: "No matching companion tools.",
+      emptyConnections: "No local zone connections recorded yet. Start the local zone, then join it.",
+      emptyIpBans: "No active local IP bans.",
+      banIp: "BAN IP",
+      bannedIp: "IP banned for the local zone. New accounts from that address will be refused on next connect.",
+      sections: {
+        runtime: "RUNTIME",
+        paths: "PATHS",
+        launch: "LAUNCH",
+        identity: "KEY SLOTS",
+        logs: "LAUNCHER LOG",
+        security: "SECURITY",
+        endpoints: "PUBLIC ENDPOINTS",
+        health: "INSTALL HEALTH",
+        companion: "COMPANION PROCESSES",
+        combat: "COMBAT LOGS",
+        killFeed: "KILL FEED",
+        ipBans: "LOCAL ZONE IPS",
+        remoteSessions: "LIVE SERVER SESSIONS",
+        definitions: "CLIENT DEFINITIONS",
+        clientConfig: "CLIENTCONFIG.INI",
+      },
+      fields: {
+        version: "LAUNCHER",
+        electron: "ELECTRON",
+        chrome: "CHROME",
+        node: "NODE",
+        isolatedData: "ISOLATED USER DATA",
+        vite: "VITE DEV SERVER",
+        userData: "USER DATA",
+        appPath: "APP PATH",
+        logsRoot: "LOGS",
+        installation: "INSTALLATION",
+        realPath: "REAL PATH",
+        source: "SOURCE",
+        destination: "DESTINATION",
+        phase: "PHASE",
+        pid: "GAME PID",
+        running: "H1Z1 RUNNING",
+        canPlay: "CAN PLAY",
+        updateRequired: "UPDATE REQUIRED",
+        gateway: "SESSION GATEWAY",
+        attestation: "ATTESTATION",
+        server: "SERVER",
+        role: "ROLE",
+        environment: "ENVIRONMENT",
+        website: "WEBSITE",
+        assets: "ASSETS",
+        launcherUpdate: "LAUNCHER UPDATE",
+        sandbox: "SANDBOX",
+        isolation: "CONTEXT ISOLATION",
+        encryption: "DPAPI AVAILABLE",
+        gatewayOrigin: "GAME GATEWAY",
+        voice: "VOICE GRANT",
+        login: "LOGIN LISTENERS",
+        ticketUrl: "TICKET API",
+        challengeUrl: "ATTESTATION API",
+        marker: "MARKER",
+        buildId: "CLIENT BUILD",
+        installedAt: "INSTALLED AT",
+        matchesConfig: "MARKER MATCHES CONFIG",
+        scanStatus: "SCAN",
+        scannedAt: "SCANNED AT",
+        processCount: "PROCESSES",
+        flagCount: "FLAGS",
+        player: "PLAYER",
+        ip: "IP",
+        seenAt: "LAST SEEN",
+        banReason: "REASON",
+        kills: "KILLS",
+        deaths: "DEATHS",
+        headshots: "HEADSHOTS",
+        killGap: "MIN KILL GAP",
+      },
+      attestation: {
+        idle: "IDLE",
+        attested: "ATTESTED",
+        "not-applicable": "NOT APPLICABLE",
+        unavailable: "UNAVAILABLE",
+      },
+      companionStatus: {
+        idle: "IDLE",
+        ok: "OK",
+        unavailable: "UNAVAILABLE",
+      },
+      companionCategory: {
+        cheat: "CHEAT",
+        injector: "INJECTOR",
+        debugger: "DEBUGGER",
+      },
+    },
   },
   fr: {
     language: {
@@ -376,6 +633,7 @@ const COPY: Record<AppLocale, Copy> = {
       launcher: "LAUNCHER",
       updates: "DEV UPDATES",
       build: "BUILD",
+      devTools: "DEV",
       minimize: "Réduire",
       close: "Fermer",
     },
@@ -555,6 +813,140 @@ const COPY: Record<AppLocale, Copy> = {
       verify: "VÉRIFIER LES FICHIERS",
       restore: "RESTAURER LE CLIENT VANILLA",
       autoSync: "Mettre à jour les assets personnalisés automatiquement",
+    },
+    devTools: {
+      panelLabel: "Outils développeur du launcher ROTK",
+      eyebrow: "OUTILS OPÉRATEUR",
+      title: "DEV TOOLS",
+      intro: "Diagnostics opérateur de ce launcher. Les clés joueur, tickets de lancement et l’URL de la passerelle de session ne sont jamais affichés.",
+      close: "Fermer les outils développeur",
+      copy: "COPIER LES DIAGNOSTICS",
+      copied: "Diagnostics expurgés copiés.",
+      copyFailed: "Impossible de copier les diagnostics.",
+      openUserData: "OUVRIR USER DATA",
+      openLogs: "JOURNAUX LAUNCHER",
+      openGameLogs: "JOURNAUX DU JEU",
+      openSessions: "SESSIONS",
+      captureSession: "CAPTURER LA SESSION",
+      capturedSession: "Dossier de session écrit.",
+      clearLogs: "VIDER LE JOURNAL",
+      emptyLogs: "Aucun événement launcher pour l’instant.",
+      emptyCombat: "Aucune ligne dans ce journal de combat.",
+      emptyKillFeed: "Aucun kill dans la fenêtre KillFeed actuelle.",
+      chromium: "INSPECTEUR CHROMIUM",
+      reload: "RECHARGER L’UI",
+      revalidate: "REVÉRIFIER L’INSTALL",
+      scanCompanion: "SCANNER LES PROCESSUS",
+      scannedCompanion: "Scan des processus compagnons terminé.",
+      exportFile: "EXPORTER JSON",
+      exported: "Diagnostics écrits dans les données utilisateur.",
+      yes: "OUI",
+      no: "NON",
+      listening: "À L’ÉCOUTE",
+      idle: "INACTIVE",
+      companionNote: "Heuristiques en mode utilisateur uniquement. L’absence de signal n’est pas une preuve de machine propre. Le service de comptes décide de la suite.",
+      combatNote: "Extraits en direct de cette installation. Les machines des autres joueurs ne sont pas visibles ici.",
+      killFeedNote: "Lu depuis le KillFeed.log de cette machine. Noms uniquement — pas une liste de bannissement. Les intervalles serrés sont marqués pour relecture.",
+      ipBanNote: "Connexions de la zone locale sur ce PC. Les IP GAME 2 / TEST viennent du service de comptes lorsque cette clé est modérateur.",
+      ipBanWarning: "Un ban IP peut toucher tout le monde derrière le même NAT ou VPN. L’identité matérielle voyage déjà avec les tickets de lancement ; c’est la couche la plus solide contre les nouveaux comptes.",
+      remoteSessionsNote: "Interrogé auprès du service de comptes du serveur choisi. C’est le serveur qui décide qui est modérateur. Une clé joueur ordinaire ne reçoit pas cette liste.",
+      remoteSessionsUnavailable: "Les IP de connexion en direct ne sont pas encore fournies par le service de comptes. Elles apparaîtront ici pour les modérateurs une fois que ROTK les activera sur ce serveur.",
+      remoteSessionsForbidden: "Cette clé launcher n’est pas modérateur sur ce serveur.",
+      remoteSessionsIdle: "Ajoute une clé launcher pour demander les sessions en direct de ce serveur.",
+      emptyRemoteSessions: "Aucune session en direct pour l’instant.",
+      preferTestServer: "Ce launcher non empaqueté pointe vers GAME 2 (production). Utilise ROTK TEST pour itérer dès que la clé de ce compte est disponible.",
+      live: "EN DIRECT",
+      emptyDefinitions: "Aucun chargement de définitions pour l’instant.",
+      emptyFlags: "Aucun outil compagnon correspondant.",
+      emptyConnections: "Aucune connexion de zone locale enregistrée. Démarre la zone locale, puis rejoins-la.",
+      emptyIpBans: "Aucun ban IP local actif.",
+      banIp: "BAN IP",
+      bannedIp: "IP bannie pour la zone locale. Les nouveaux comptes depuis cette adresse seront refusés à la prochaine connexion.",
+      sections: {
+        runtime: "RUNTIME",
+        paths: "CHEMINS",
+        launch: "LANCEMENT",
+        identity: "EMPLACEMENTS DE CLÉS",
+        logs: "JOURNAL LAUNCHER",
+        security: "SÉCURITÉ",
+        endpoints: "POINTS D’ACCÈS PUBLICS",
+        health: "SANTÉ DE L’INSTALL",
+        companion: "PROCESSUS COMPAGNONS",
+        combat: "JOURNAUX DE COMBAT",
+        killFeed: "KILL FEED",
+        ipBans: "IPS ZONE LOCALE",
+        remoteSessions: "SESSIONS SERVEUR",
+        definitions: "DÉFINITIONS CLIENT",
+        clientConfig: "CLIENTCONFIG.INI",
+      },
+      fields: {
+        version: "LAUNCHER",
+        electron: "ELECTRON",
+        chrome: "CHROME",
+        node: "NODE",
+        isolatedData: "DONNÉES ISOLÉES",
+        vite: "SERVEUR VITE",
+        userData: "USER DATA",
+        appPath: "CHEMIN APP",
+        logsRoot: "JOURNAUX",
+        installation: "INSTALLATION",
+        realPath: "CHEMIN RÉEL",
+        source: "SOURCE",
+        destination: "DESTINATION",
+        phase: "PHASE",
+        pid: "PID DU JEU",
+        running: "H1Z1 EN COURS",
+        canPlay: "PRÊT À JOUER",
+        updateRequired: "MAJ OBLIGATOIRE",
+        gateway: "PASSERELLE DE SESSION",
+        attestation: "ATTESTATION",
+        server: "SERVEUR",
+        role: "RÔLE",
+        environment: "ENVIRONNEMENT",
+        website: "SITE",
+        assets: "ASSETS",
+        launcherUpdate: "MAJ LAUNCHER",
+        sandbox: "SANDBOX",
+        isolation: "ISOLATION DE CONTEXTE",
+        encryption: "DPAPI DISPONIBLE",
+        gatewayOrigin: "GATEWAY JEU",
+        voice: "GRANT VOCAL",
+        login: "LISTENERS LOGIN",
+        ticketUrl: "API TICKET",
+        challengeUrl: "API ATTESTATION",
+        marker: "MARQUEUR",
+        buildId: "BUILD CLIENT",
+        installedAt: "INSTALLÉ LE",
+        matchesConfig: "MARQUEUR = CONFIG",
+        scanStatus: "SCAN",
+        scannedAt: "SCANNÉ À",
+        processCount: "PROCESSUS",
+        flagCount: "SIGNAUX",
+        player: "JOUEUR",
+        ip: "IP",
+        seenAt: "VU LE",
+        banReason: "MOTIF",
+        kills: "KILLS",
+        deaths: "MORTS",
+        headshots: "HEADSHOTS",
+        killGap: "ÉCART MIN. KILLS",
+      },
+      attestation: {
+        idle: "INACTIVE",
+        attested: "ATTESTÉE",
+        "not-applicable": "SANS OBJET",
+        unavailable: "INDISPONIBLE",
+      },
+      companionStatus: {
+        idle: "INACTIF",
+        ok: "OK",
+        unavailable: "INDISPONIBLE",
+      },
+      companionCategory: {
+        cheat: "TRICHE",
+        injector: "INJECTEUR",
+        debugger: "DÉBOGUEUR",
+      },
     },
   },
 };

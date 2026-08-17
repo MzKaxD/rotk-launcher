@@ -17,7 +17,7 @@ import {
   readLauncherOverrides,
 } from "../electron/services/base-manifest";
 
-const LAUNCHER_VERSION = "1.4.0";
+const LAUNCHER_VERSION = "1.4.3";
 const CHALLENGE_ID = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
 const PLAYER_KEY = "0123456789abcdef0123456789abcdef";
 const ENDPOINT = "https://accounts.rotk.app/beginLauncherAttestation";

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { stat } from "node:fs/promises";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { join, basename, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -24,6 +24,7 @@ import {
   type LauncherPhase,
   type LauncherSnapshot,
   type OperationResult,
+  type AttestationDevStatus,
   type PlayerIdentitySummary,
 } from "../shared/contracts.js";
 import { isAppLocale, type AppLocale } from "../shared/locale.js";
@@ -41,6 +42,8 @@ import {
 } from "../shared/launch-profile.js";
 import {
   APP_NAME,
+  CRITICAL_CLIENT_FILES,
+  INSTALL_MARKER_NAME,
   RECOMMENDED_INSTALL_PARENT_NAME,
   ROTK_INSTALL_DIRECTORY_NAME,
   resolveBundledShimPath,
@@ -48,7 +51,7 @@ import {
   resolveBundledVivoxRuntimePath,
 } from "./constants.js";
 import { ConfigStore } from "./services/config-store.js";
-import { adoptExistingClient, installClient } from "./services/installer.js";
+import { adoptExistingClient, installClient, readInstallationMarker } from "./services/installer.js";
 import {
   GameLauncher,
   validateInstalledClient,
@@ -61,6 +64,7 @@ import { locateSteamClient } from "./services/steam-locator.js";
 import {
   runtimeConfigFor,
   runtimeConfigList,
+  serverList,
   type RuntimeConfig,
 } from "./services/runtime-config.js";
 import {
@@ -74,9 +78,54 @@ import { AssetSyncService } from "./services/asset-sync.js";
 import { LauncherUpdateService } from "./services/launcher-update.js";
 import electronUpdater from "electron-updater";
 import { localizeServiceError, MAIN_COPY } from "./i18n.js";
-import { identityFromPlayerKey } from "./services/player-identity.js";
+import { identityFromPlayerKey, resolveLaunchKey } from "./services/player-identity.js";
 import { PlayerKeyStore, type PlayerKeySet } from "./services/player-key-store.js";
-import { readInstallationMarker } from "./services/installer.js";
+import {
+  DevLogBuffer,
+  buildDevToolsSnapshot,
+  formatDevDiagnostics,
+  operatorToolsAvailable,
+  redactClientConfig,
+  redactSensitiveText,
+} from "./services/dev-tools.js";
+import {
+  OPERATOR_COMBAT_LOGS,
+  OPERATOR_DEFINITION_LOG,
+  OPERATOR_LOG_WATCH_INTERVAL_MS,
+  buildSessionDossier,
+  emptyCombatLog,
+  emptyKillFeedSummary,
+  gameLogDirectories,
+  operatorWatchKey,
+  parseDefinitionLoads,
+  parseKillFeed,
+  recentKillFeedEvents,
+  sessionDossierFileName,
+  summarizeKillFeed,
+  toCombatLogEntry,
+} from "./services/operator-session.js";
+import {
+  emptyCompanionScan,
+  listWindowsProcesses,
+  scanCompanionProcesses,
+  toCompanionObservation,
+  toCompanionScanSummary,
+  type CompanionScanResult,
+} from "./services/companion-process-scan.js";
+import {
+  OPERATOR_CONNECTIONS_DISPLAY,
+  addOperatorIpBan,
+  operatorDataDirectory,
+  readOperatorBans,
+  readOperatorConnections,
+} from "./services/operator-ip.js";
+import {
+  EMPTY_OPERATOR_REMOTE_FEED,
+  OPERATOR_SESSIONS_POLL_INTERVAL_MS,
+  fetchOperatorSessions,
+  submitOperatorIpBan,
+  type OperatorRemoteFeed,
+} from "./services/operator-sessions.js";
 import {
   BASE_MANIFEST_URL,
   loadBaseManifest,
@@ -147,6 +196,26 @@ let assetSyncProgress: AssetSyncProgress | null = null;
 let attestationProgress: AttestationProgress | null = null;
 let assetSyncPackVersion: string | null = null;
 let assetSyncLastAt: string | null = null;
+const devLog = new DevLogBuffer();
+let lastLoggedPhase: LauncherPhase | null = null;
+let lastAttestation: { status: AttestationDevStatus; reason: string | null } = {
+  status: "idle",
+  reason: null,
+};
+let lastCompanionScan: CompanionScanResult = emptyCompanionScan();
+let companionScanInFlight: Promise<CompanionScanResult> | null = null;
+let companionWatchTimer: ReturnType<typeof setInterval> | null = null;
+const COMPANION_SCAN_INTERVAL_MS = 20_000;
+let lastCombatLogs = OPERATOR_COMBAT_LOGS.map((name) => emptyCombatLog(name));
+let lastKillFeed = emptyKillFeedSummary();
+let lastDefinitions: Array<{ name: string; count: number }> = [];
+let lastOperatorWatchKey = "";
+let operatorLogWatchTimer: ReturnType<typeof setInterval> | null = null;
+let operatorSessionStartedAt: string | null = null;
+let lastSessionDossier: string | null = null;
+let lastOperatorRemote: OperatorRemoteFeed = EMPTY_OPERATOR_REMOTE_FEED;
+let operatorRemoteWatchTimer: ReturnType<typeof setInterval> | null = null;
+let operatorRemoteInFlight: Promise<OperatorRemoteFeed> | null = null;
 
 function rawErrorMessage(error: unknown): string {
   if (error instanceof Error && error.name === "AbortError") return "Installation annulée.";
@@ -181,7 +250,7 @@ function activeProfile(): LaunchProfileId {
 
 /** The credential the next launch authenticates with, or null when unset. */
 function activeKey(): string | null {
-  return playerKeys[activeProfile()] ?? null;
+  return resolveLaunchKey(playerKeys, selectedServerId, selectedRole);
 }
 
 function isSelectionLocked(): boolean {
@@ -295,12 +364,18 @@ async function attestInstallation(
   runtime: RuntimeConfig,
 ): Promise<AttestationOutcome> {
   const root = await installationRoot();
-  if (!root) return { status: "not-applicable" };
+  if (!root) {
+    lastAttestation = { status: "not-applicable", reason: null };
+    return { status: "not-applicable" };
+  }
   const userDataDirectory = app.getPath("userData");
   const launcherVersion = app.getVersion();
   try {
     const marker = await readInstallationMarker(root);
-    if (!marker) return { status: "not-applicable" };
+    if (!marker) {
+      lastAttestation = { status: "not-applicable", reason: null };
+      return { status: "not-applicable" };
+    }
 
     const challenge = await requestAttestationChallenge(
       playerKey,
@@ -353,6 +428,7 @@ async function attestInstallation(
     // a value it already holds, while the single-use challenge stops replay. The
     // server decides (behind its own flag) whether a missing proof is acceptable.
     const tpmProof = await collectTpmProof(challenge.challengeId).catch(() => null);
+    lastAttestation = { status: "attested", reason: null };
     return {
       status: "attested",
       block: buildAttestationResult(challenge, measurement, launcherVersion, tpmProof),
@@ -362,6 +438,7 @@ async function attestInstallation(
     // No policy published / attestation unconfigured: it does not apply, and
     // the launch proceeds silently exactly as before enforcement existed.
     if (error instanceof AttestationUnavailableError && error.notApplicable) {
+      lastAttestation = { status: "not-applicable", reason: null };
       return { status: "not-applicable" };
     }
     // A challenge or manifest we could not obtain, or files we could not read:
@@ -371,6 +448,7 @@ async function attestInstallation(
       ? error.message.replace(/[.]?\s*$/, ".")
       : "the integrity service could not be reached.";
     console.warn("Integrity attestation could not complete", { message: reason });
+    lastAttestation = { status: "unavailable", reason };
     return { status: "unavailable", reason };
   }
 }
@@ -378,6 +456,12 @@ async function attestInstallation(
 async function snapshot(): Promise<LauncherSnapshot> {
   const configuredRoot = await installationRoot();
   const runtime = activeRuntime();
+  const canPlay =
+    phase === "ready"
+    && configuredRoot !== null
+    && activeKey() !== null
+    && !gameLauncher.isRunning()
+    && !updateRequired;
   return {
     appVersion: app.getVersion(),
     phase,
@@ -415,14 +499,375 @@ async function snapshot(): Promise<LauncherSnapshot> {
     error: lastErrorRaw ? localizeServiceError(lastErrorRaw, currentLocale) : null,
     gamePid,
     updateRequired,
-    canPlay:
-      phase === "ready"
-      && configuredRoot !== null
-      && activeKey() !== null
-      && !gameLauncher.isRunning()
-      // A mandatory update blocks Play until a newer launcher is installed.
-      && !updateRequired,
+    canPlay,
+    devTools: await buildOperatorDiagnostics(configuredRoot, runtime, canPlay),
   };
+}
+
+function operatorToolsEnabledNow(): boolean {
+  return operatorToolsAvailable({
+    packaged: app.isPackaged,
+    role: selectedRole,
+    adminKeyConfigured: Boolean(playerKeys[launchProfileId(selectedServerId, "admin")]),
+  });
+}
+
+async function buildOperatorDiagnostics(
+  configuredRoot: string | null,
+  runtime: RuntimeConfig,
+  canPlay: boolean,
+) {
+  if (!operatorToolsEnabledNow()) return null;
+  await refreshOperatorLogs().catch(() => undefined);
+  let installationRealPath: string | null = null;
+  if (configuredRoot) {
+    try {
+      installationRealPath = await realpath(configuredRoot);
+    } catch {
+      installationRealPath = null;
+    }
+  }
+  return buildDevToolsSnapshot({
+    appVersion: app.getVersion(),
+    electronVersion: process.versions.electron ?? "unknown",
+    chromeVersion: process.versions.chrome ?? "unknown",
+    nodeVersion: process.versions.node,
+    packaged: app.isPackaged,
+    isolatedUserData: usesIsolatedDevelopmentData,
+    viteDevServer: Boolean(process.env.VITE_DEV_SERVER_URL),
+    security: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      encryptionAvailable: safeStorage.isEncryptionAvailable(),
+    },
+    paths: {
+      userData: app.getPath("userData"),
+      appPath: app.getAppPath(),
+      logsRoot: join(app.getPath("userData"), "logs"),
+      installationRoot: configuredRoot,
+      installationRealPath,
+      sourceRoot,
+      destinationRoot,
+    },
+    launch: {
+      phase,
+      gamePid,
+      gameRunning: gameLauncher.isRunning(),
+      canPlay,
+      updateRequired,
+      sessionGatewayListening: gameLauncher.isSessionGatewayListening(),
+      attestation: lastAttestation,
+    },
+    runtime: {
+      serverId: runtime.id,
+      role: selectedRole,
+      environment: runtime.environment,
+      label: runtime.label,
+      websiteOrigin: runtime.websiteOrigin,
+      gatewayOrigin: runtime.gatewayOrigin,
+      voiceGrantOrigin: runtime.voiceGrantOrigin,
+      loginList: serverList(runtime),
+      launchTicketUrl: runtime.launchTicketUrl,
+      attestationChallengeUrl: runtime.attestationChallengeUrl,
+    },
+    identityConfigured: Object.fromEntries(
+      LAUNCH_PROFILE_IDS.map((profile) => [profile, Boolean(playerKeys[profile])]),
+    ) as Record<LaunchProfileId, boolean>,
+    assetSync: {
+      enabled: assetSyncEnabled,
+      status: assetSyncEnabled ? assetSyncStatus : "disabled",
+      packVersion: assetSyncPackVersion,
+    },
+    launcherUpdate: {
+      status: launcherUpdate.state.status,
+      availableVersion: launcherUpdate.state.availableVersion,
+    },
+    installHealth: await inspectInstallHealth(configuredRoot),
+    clientConfig: await readRedactedClientConfig(configuredRoot),
+    ipcChannels: Object.values(IPC_CHANNELS),
+    companionScan: toCompanionScanSummary(lastCompanionScan),
+    combatLogs: lastCombatLogs,
+    killFeed: lastKillFeed,
+    definitions: lastDefinitions,
+    preferTestServer: !app.isPackaged && runtime.environment === "production",
+    operatorWatching: operatorLogWatchTimer !== null,
+    lastSessionDossier,
+    ...(await loadOperatorIpSnapshot()),
+    operatorRemote: lastOperatorRemote,
+    logs: devLog.list(),
+  });
+}
+
+async function loadOperatorIpSnapshot() {
+  const directory = operatorDataDirectory(app.getPath("appData"));
+  const [connections, bans] = await Promise.all([
+    readOperatorConnections(directory),
+    readOperatorBans(directory),
+  ]);
+  return {
+    operatorConnections: connections.slice(-OPERATOR_CONNECTIONS_DISPLAY).reverse(),
+    operatorIpBans: bans.map((ban) => ({
+      ip: ban.IP,
+      reason: ban.banReason,
+      at: ban.at,
+      active: ban.active,
+    })),
+  };
+}
+
+async function refreshOperatorRemote(force = false): Promise<OperatorRemoteFeed> {
+  if (!operatorToolsEnabledNow()) {
+    lastOperatorRemote = EMPTY_OPERATOR_REMOTE_FEED;
+    return lastOperatorRemote;
+  }
+  if (operatorRemoteInFlight && !force) return operatorRemoteInFlight;
+  const key = activeKey();
+  const runtime = activeRuntime();
+  operatorRemoteInFlight = fetchOperatorSessions(runtime, key, {
+    launcherVersion: app.getVersion(),
+  })
+    .then((feed) => {
+      lastOperatorRemote = feed;
+      return feed;
+    })
+    .finally(() => {
+      operatorRemoteInFlight = null;
+    });
+  return operatorRemoteInFlight;
+}
+
+function startOperatorRemoteWatch(): void {
+  if (!operatorToolsEnabledNow()) return;
+  stopOperatorRemoteWatch();
+  void refreshOperatorRemote(true).then(() => void broadcastSnapshot());
+  operatorRemoteWatchTimer = setInterval(() => {
+    void refreshOperatorRemote().then(() => void broadcastSnapshot());
+  }, OPERATOR_SESSIONS_POLL_INTERVAL_MS);
+}
+
+function stopOperatorRemoteWatch(): void {
+  if (!operatorRemoteWatchTimer) return;
+  clearInterval(operatorRemoteWatchTimer);
+  operatorRemoteWatchTimer = null;
+}
+
+function companionScanKey(result: CompanionScanResult): string {
+  return `${result.status}:${result.flags.map((flag) => `${flag.pid}:${flag.pattern}`).join(",")}`;
+}
+
+function logCompanionScan(result: CompanionScanResult): void {
+  if (result.status === "unavailable") {
+    devLog.push("warn", `Companion scan unavailable: ${result.error ?? "unknown error"}`);
+    return;
+  }
+  if (result.flags.length === 0) {
+    devLog.push("info", `Companion scan: ${result.processCount} process(es), no flags.`);
+    return;
+  }
+  const names = result.flags.map((flag) => `${flag.name} (${flag.category})`).join(", ");
+  devLog.push("warn", `Companion scan flagged ${result.flags.length} process(es): ${names}`);
+}
+
+async function refreshCompanionScan(mode: "play" | "watch" | "manual"): Promise<CompanionScanResult> {
+  if (companionScanInFlight) return companionScanInFlight;
+  const previousKey = companionScanKey(lastCompanionScan);
+  companionScanInFlight = scanCompanionProcesses(
+    () => listWindowsProcesses(mode === "manual"),
+  )
+    .then((result) => {
+      const changed = companionScanKey(result) !== previousKey;
+      lastCompanionScan = result;
+      if (mode !== "watch" || changed) logCompanionScan(result);
+      return result;
+    })
+    .finally(() => {
+      companionScanInFlight = null;
+    });
+  return companionScanInFlight;
+}
+
+function startCompanionWatch(): void {
+  if (!operatorToolsEnabledNow()) return;
+  stopCompanionWatch();
+  companionWatchTimer = setInterval(() => {
+    void refreshCompanionScan("watch").then(() => void broadcastSnapshot());
+  }, COMPANION_SCAN_INTERVAL_MS);
+}
+
+function stopCompanionWatch(): void {
+  if (!companionWatchTimer) return;
+  clearInterval(companionWatchTimer);
+  companionWatchTimer = null;
+}
+
+function startOperatorLogWatch(): void {
+  if (!operatorToolsEnabledNow()) return;
+  stopOperatorLogWatch();
+  startOperatorRemoteWatch();
+  void refreshOperatorLogs().then((changed) => {
+    if (changed) void broadcastSnapshot();
+  });
+  operatorLogWatchTimer = setInterval(() => {
+    void refreshOperatorLogs().then((changed) => {
+      if (changed) void broadcastSnapshot();
+    });
+  }, OPERATOR_LOG_WATCH_INTERVAL_MS);
+}
+
+function stopOperatorLogWatch(): void {
+  stopOperatorRemoteWatch();
+  if (!operatorLogWatchTimer) return;
+  clearInterval(operatorLogWatchTimer);
+  operatorLogWatchTimer = null;
+}
+
+async function newestLogFile(directories: string[], name: string): Promise<{ path: string; mtime: Date } | null> {
+  let newest: { path: string; mtime: Date } | null = null;
+  for (const directory of directories) {
+    const path = join(directory, name);
+    const info = await stat(path).catch(() => null);
+    if (!info?.isFile()) continue;
+    if (!newest || info.mtimeMs > newest.mtime.getTime()) {
+      newest = { path, mtime: info.mtime };
+    }
+  }
+  return newest;
+}
+
+async function refreshOperatorLogs(): Promise<boolean> {
+  const config = await configStore.load();
+  const directories = gameLogDirectories(
+    config.installation?.root ?? null,
+    join(app.getPath("userData"), "logs"),
+    config.installation?.installId ?? null,
+  );
+  let killFeedContent = "";
+  const combatLogs = await Promise.all(OPERATOR_COMBAT_LOGS.map(async (name) => {
+    const file = await newestLogFile(directories, name);
+    if (!file) return emptyCombatLog(name);
+    try {
+      const content = await readFile(file.path, "utf8");
+      if (name === "KillFeed.log") killFeedContent = content;
+      return toCombatLogEntry(name, content, file.path, file.mtime);
+    } catch {
+      return emptyCombatLog(name);
+    }
+  }));
+  const definitionFile = await newestLogFile(directories, OPERATOR_DEFINITION_LOG);
+  let definitions = lastDefinitions;
+  if (definitionFile) {
+    try {
+      definitions = parseDefinitionLoads(await readFile(definitionFile.path, "utf8"));
+    } catch {
+      definitions = lastDefinitions;
+    }
+  }
+  const sessionStartedMs = operatorSessionStartedAt ? Date.parse(operatorSessionStartedAt) : null;
+  const killFeed = summarizeKillFeed(
+    recentKillFeedEvents(parseKillFeed(killFeedContent), sessionStartedMs),
+  );
+  const nextKey = operatorWatchKey(combatLogs, definitions, killFeed);
+  if (nextKey === lastOperatorWatchKey) return false;
+  lastCombatLogs = combatLogs;
+  lastKillFeed = killFeed;
+  lastDefinitions = definitions;
+  lastOperatorWatchKey = nextKey;
+  return true;
+}
+
+async function writeOperatorSessionDossier(
+  endedAt = new Date(),
+  options: { force?: boolean } = {},
+): Promise<string | null> {
+  if (!operatorToolsEnabledNow()) return null;
+  if (!options.force && !operatorSessionStartedAt) return null;
+  await refreshOperatorLogs().catch(() => undefined);
+  const endedAtIso = endedAt.toISOString();
+  const dossier = buildSessionDossier({
+    startedAt: operatorSessionStartedAt ?? lastKillFeed.windowStartedAt ?? endedAtIso,
+    endedAt: endedAtIso,
+    pid: gamePid,
+    serverId: selectedServerId,
+    role: selectedRole,
+    environment: activeRuntime().environment,
+    label: activeRuntime().label,
+    packVersion: assetSyncPackVersion,
+    companion: toCompanionScanSummary(lastCompanionScan),
+    combatLogs: lastCombatLogs,
+    killFeed: lastKillFeed,
+    definitions: lastDefinitions,
+  });
+  const directory = join(app.getPath("userData"), "sessions");
+  await mkdir(directory, { recursive: true });
+  const target = join(directory, sessionDossierFileName(dossier.endedAt));
+  await writeFile(target, `${JSON.stringify(dossier, null, 2)}\n`, "utf8");
+  lastSessionDossier = target;
+  devLog.push("info", `Operator session written to ${basename(target)}`);
+  return target;
+}
+
+const INSTALL_HEALTH_FILES = [
+  ...CRITICAL_CLIENT_FILES,
+  "steam_api64.original.dll",
+  "vivoxsdk_x64.dll",
+  INSTALL_MARKER_NAME,
+] as const;
+
+async function inspectInstallHealth(root: string | null) {
+  if (!root) {
+    return {
+      ok: false,
+      error: "No ROTK installation is configured.",
+      markerPresent: false,
+      markerInstallId: null,
+      markerBuildId: null,
+      markerInstalledAt: null,
+      markerMatchesConfig: null,
+      files: [],
+    };
+  }
+  const files = await Promise.all(INSTALL_HEALTH_FILES.map(async (name) => ({
+    name,
+    present: Boolean(await stat(join(root, name)).catch(() => null)),
+  })));
+  const marker = await readInstallationMarker(root).catch(() => null);
+  const config = await configStore.load();
+  let error: string | null = null;
+  let ok = true;
+  if (!config.installation) {
+    ok = false;
+    error = "No installation record in launcher config.";
+  } else {
+    try {
+      await validateInstalledClient(config.installation);
+    } catch (caught) {
+      ok = false;
+      error = redactSensitiveText(rawErrorMessage(caught));
+    }
+  }
+  return {
+    ok,
+    error,
+    markerPresent: marker !== null,
+    markerInstallId: marker?.installId ?? null,
+    markerBuildId: marker?.clientBuildId ?? null,
+    markerInstalledAt: marker?.installedAt ?? null,
+    markerMatchesConfig: marker && config.installation
+      ? marker.installId === config.installation.installId
+      : null,
+    files,
+  };
+}
+
+async function readRedactedClientConfig(root: string | null): Promise<string | null> {
+  if (!root) return null;
+  try {
+    return redactClientConfig(await readFile(join(root, "ClientConfig.ini"), "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 function statusOf(serverId: ServerId): ServerStatus {
@@ -442,6 +887,10 @@ function identitySummary(): PlayerIdentitySummary {
 }
 
 async function broadcastSnapshot(): Promise<void> {
+  if (phase !== lastLoggedPhase) {
+    devLog.push("info", `Phase → ${phase}`);
+    lastLoggedPhase = phase;
+  }
   const value = await snapshot();
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC_CHANNELS.snapshotChanged, value);
@@ -492,7 +941,27 @@ function trustedHandler<T extends unknown[], R>(
 
 function operationError<T = undefined>(error: unknown): OperationResult<T> {
   lastErrorRaw = rawErrorMessage(error);
+  devLog.push("error", lastErrorRaw);
   return { ok: false, error: localizeServiceError(lastErrorRaw, currentLocale) };
+}
+
+function rejectPackagedDevTools<T = undefined>(): OperationResult<T> | null {
+  if (!app.isPackaged) return null;
+  return { ok: false, error: MAIN_COPY[currentLocale].devTools.inspectorUnavailable };
+}
+
+function rejectUnlessOperatorTools<T = undefined>(): OperationResult<T> | null {
+  if (operatorToolsEnabledNow()) return null;
+  return { ok: false, error: MAIN_COPY[currentLocale].devTools.unavailable };
+}
+
+async function openKnownFolder(target: string): Promise<OperationResult> {
+  const rejected = rejectUnlessOperatorTools();
+  if (rejected) return rejected;
+  await mkdir(target, { recursive: true });
+  const error = await shell.openPath(target);
+  if (error) return { ok: false, error: MAIN_COPY[currentLocale].devTools.folderOpenFailed };
+  return { ok: true };
 }
 
 function registerIpc(): void {
@@ -523,6 +992,7 @@ function registerIpc(): void {
         selectedRole = role;
         lastErrorRaw = null;
         await broadcastSnapshot();
+        void refreshOperatorRemote(true).then(() => void broadcastSnapshot());
         return { ok: true, value: await snapshot() };
       } catch (error) {
         return { ok: false, error: errorMessage(error) };
@@ -544,6 +1014,7 @@ function registerIpc(): void {
         playerKeys = { ...playerKeys, [profile]: identity.playerKey };
         lastErrorRaw = null;
         await broadcastSnapshot();
+        void refreshOperatorRemote(true).then(() => void broadcastSnapshot());
         return { ok: true, value: identitySummary() };
       } catch (error) {
         return { ok: false, error: errorMessage(error) };
@@ -561,6 +1032,7 @@ function registerIpc(): void {
         playerKeys = remaining;
         lastErrorRaw = null;
         await broadcastSnapshot();
+        void refreshOperatorRemote(true).then(() => void broadcastSnapshot());
         return { ok: true, value: identitySummary() };
       } catch (error) {
         return { ok: false, error: errorMessage(error) };
@@ -785,6 +1257,7 @@ function registerIpc(): void {
         return { ok: false, error: assetResult.error };
       }
       try {
+        const companionScan = await refreshCompanionScan("play");
         const pid = await gameLauncher.launch({
           config: await configStore.load(),
           identity: launchCredential,
@@ -798,15 +1271,32 @@ function registerIpc(): void {
           // Best-effort hardware fingerprint; the server hashes it. A failure
           // must never block a launch, so it degrades to no HWID signal.
           hwid: await collectHwid().catch(() => ({})),
+          // Observation only: flags ride with the ticket; Play is never blocked here.
+          companionObservation: toCompanionObservation(companionScan),
           onExit: () => {
-            gamePid = null;
-            phase = "ready";
-            void broadcastSnapshot();
-            if (quitWhenGameExits && !mainWindow) app.quit();
+            stopCompanionWatch();
+            void writeOperatorSessionDossier()
+              .catch((error) => {
+                devLog.push("warn", `Operator session not written: ${rawErrorMessage(error)}`);
+              })
+              .finally(() => {
+                gamePid = null;
+                operatorSessionStartedAt = null;
+                phase = "ready";
+                devLog.push("info", "H1Z1 exited");
+                void broadcastSnapshot();
+                if (quitWhenGameExits && !mainWindow) app.quit();
+              });
           },
         });
         gamePid = pid;
         phase = "running";
+        operatorSessionStartedAt = new Date().toISOString();
+        if (gameLauncher.isRunning()) {
+          startCompanionWatch();
+          startOperatorLogWatch();
+        }
+        devLog.push("info", `H1Z1 started (pid ${pid})`);
         await broadcastSnapshot();
         return { ok: true, value: { pid } };
       } catch (error) {
@@ -932,6 +1422,166 @@ function registerIpc(): void {
     }),
   );
 
+  ipcMain.handle(
+    IPC_CHANNELS.copyDevDiagnostics,
+    trustedHandler(async (): Promise<OperationResult> => {
+      const rejected = rejectUnlessOperatorTools();
+      if (rejected) return rejected;
+      const diagnostics = (await snapshot()).devTools;
+      if (!diagnostics) return { ok: false, error: MAIN_COPY[currentLocale].devTools.unavailable };
+      clipboard.writeText(formatDevDiagnostics(diagnostics));
+      return { ok: true };
+    }),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.exportDevDiagnostics,
+    trustedHandler(async (): Promise<OperationResult> => {
+      const rejected = rejectUnlessOperatorTools();
+      if (rejected) return rejected;
+      const diagnostics = (await snapshot()).devTools;
+      if (!diagnostics) return { ok: false, error: MAIN_COPY[currentLocale].devTools.unavailable };
+      const target = join(app.getPath("userData"), "devtools-diagnostics.json");
+      try {
+        await writeFile(target, formatDevDiagnostics(diagnostics), "utf8");
+      } catch {
+        return { ok: false, error: MAIN_COPY[currentLocale].devTools.exportFailed };
+      }
+      await shell.openPath(target);
+      return { ok: true };
+    }),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.openUserDataFolder,
+    trustedHandler(async (): Promise<OperationResult> => openKnownFolder(app.getPath("userData"))),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.openLogsFolder,
+    trustedHandler(async (): Promise<OperationResult> => (
+      openKnownFolder(join(app.getPath("userData"), "logs"))
+    )),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.openGameLogsFolder,
+    trustedHandler(async (): Promise<OperationResult> => {
+      const rejected = rejectUnlessOperatorTools();
+      if (rejected) return rejected;
+      const root = await installationRoot();
+      if (!root) return { ok: false, error: MAIN_COPY[currentLocale].clientNotReady };
+      return openKnownFolder(join(root, "Logs"));
+    }),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.openSessionsFolder,
+    trustedHandler(async (): Promise<OperationResult> => (
+      openKnownFolder(join(app.getPath("userData"), "sessions"))
+    )),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.captureSessionDossier,
+    trustedHandler(async (): Promise<OperationResult> => {
+      const rejected = rejectUnlessOperatorTools();
+      if (rejected) return rejected;
+      try {
+        const target = await writeOperatorSessionDossier(new Date(), { force: true });
+        await broadcastSnapshot();
+        if (!target) return { ok: false, error: MAIN_COPY[currentLocale].devTools.unavailable };
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: redactSensitiveText(rawErrorMessage(error)) };
+      }
+    }),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.clearDevLogs,
+    trustedHandler(async (): Promise<OperationResult> => {
+      const rejected = rejectUnlessOperatorTools();
+      if (rejected) return rejected;
+      devLog.clear();
+      lastLoggedPhase = null;
+      await broadcastSnapshot();
+      return { ok: true };
+    }),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.openChromiumDevTools,
+    trustedHandler(async (): Promise<OperationResult> => {
+      const packaged = rejectPackagedDevTools();
+      if (packaged) return packaged;
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return { ok: false, error: MAIN_COPY[currentLocale].devTools.windowUnavailable };
+      }
+      mainWindow.webContents.openDevTools({ mode: "detach" });
+      return { ok: true };
+    }),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.reloadRenderer,
+    trustedHandler(async (): Promise<OperationResult> => {
+      const packaged = rejectPackagedDevTools();
+      if (packaged) return packaged;
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return { ok: false, error: MAIN_COPY[currentLocale].devTools.windowUnavailable };
+      }
+      mainWindow.webContents.reload();
+      return { ok: true };
+    }),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.revalidateInstall,
+    trustedHandler(async (): Promise<OperationResult> => {
+      const rejected = rejectUnlessOperatorTools();
+      if (rejected) return rejected;
+      const health = await inspectInstallHealth(await installationRoot());
+      devLog.push(health.ok ? "info" : "warn", health.ok
+        ? "Installation revalidated successfully."
+        : `Installation revalidation failed: ${health.error ?? "unknown error"}`);
+      await broadcastSnapshot();
+      return health.ok ? { ok: true } : { ok: false, error: health.error ?? MAIN_COPY[currentLocale].clientNotReady };
+    }),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.scanCompanionProcesses,
+    trustedHandler(async (): Promise<OperationResult> => {
+      const rejected = rejectUnlessOperatorTools();
+      if (rejected) return rejected;
+      await refreshCompanionScan("manual");
+      await broadcastSnapshot();
+      return { ok: true };
+    }),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.banOperatorIp,
+    trustedHandler(async (_event, ip: unknown, reason: unknown): Promise<OperationResult> => {
+      const rejected = rejectUnlessOperatorTools();
+      if (rejected) return rejected;
+      if (typeof ip !== "string") {
+        return { ok: false, error: "That is not a valid IP address." };
+      }
+      const result = await addOperatorIpBan(
+        operatorDataDirectory(app.getPath("appData")),
+        ip,
+        typeof reason === "string" ? reason : "",
+      );
+      if (!result.ok) return { ok: false, error: result.error };
+      const key = activeKey();
+      if (key && result.ip) {
+        const remote = await submitOperatorIpBan(
+          activeRuntime(),
+          key,
+          result.ip,
+          typeof reason === "string" ? reason : "",
+        );
+        if (remote.ok) devLog.push("info", `Banned IP ${result.ip} on the account service.`);
+        else if (remote.error) devLog.push("warn", `Local IP ban only (${result.ip}): ${remote.error}`);
+      } else {
+        devLog.push("info", `Banned IP ${result.ip}.`);
+      }
+      await refreshOperatorRemote(true);
+      await broadcastSnapshot();
+      return { ok: true };
+    }),
+  );
+
   ipcMain.handle(IPC_CHANNELS.minimizeWindow, trustedHandler(async () => mainWindow?.minimize()));
   ipcMain.handle(IPC_CHANNELS.closeWindow, trustedHandler(async () => mainWindow?.close()));
 }
@@ -1016,6 +1666,14 @@ async function initialize(): Promise<void> {
   assetSyncEnabled = config.assetSyncEnabled ?? true;
   selectedServerId = config.serverId ?? DEFAULT_SERVER_ID;
   selectedRole = config.role ?? DEFAULT_PLAYER_ROLE;
+  if (
+    selectedRole === "admin"
+    && !playerKeys[launchProfileId(selectedServerId, "admin")]
+    && playerKeys[launchProfileId(selectedServerId, "player")]
+  ) {
+    selectedRole = "player";
+    await configStore.setLaunchProfile(selectedServerId, "player").catch(() => undefined);
+  }
   const assetState = await assetSync.readState().catch(() => null);
   assetSyncPackVersion = assetState?.packVersion ?? null;
   assetSyncLastAt = assetState?.syncedAt ?? null;
@@ -1037,6 +1695,7 @@ async function initialize(): Promise<void> {
   registerIpc();
   mainWindow = createWindow();
   updates = await updateFeed.getLatest();
+  startOperatorLogWatch();
   await broadcastSnapshot();
   void launcherUpdate.check();
   setInterval(() => void launcherUpdate.check(), LAUNCHER_UPDATE_CHECK_INTERVAL_MS);

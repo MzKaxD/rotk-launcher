@@ -15,4 +15,9 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
   },
+  server: {
+    watch: {
+      ignored: ["**/.dev-data/**", "**/dist-electron/**", "**/release/**"],
+    },
+  },
 });

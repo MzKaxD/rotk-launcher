@@ -4,6 +4,7 @@ import {
   createLaunchTicket,
   launchTicketInternals,
 } from "../electron/services/launch-ticket.js";
+import ticketOk from "./fixtures/launch-ticket-ok.json";
 
 const launcherKey = "0123456789abcdef0123456789abcdef";
 const endpoint = "https://accounts.rotk.app/createLaunchTicket";
@@ -61,19 +62,38 @@ describe("ROTK launch ticket client", () => {
   it("sends the launcher version and HWID vector when provided", async () => {
     const hwid = { machine_guid: "mg-1", smbios_uuid: "sm-2", disk_serial: "dk-4" };
     const fetchImpl = vi.fn(async (_input: URL | RequestInfo, init?: RequestInit) => {
-      expect(JSON.parse(String(init?.body))).toEqual({ launcherKey, launcherVersion: "1.4.0", hwid });
+      expect(JSON.parse(String(init?.body))).toEqual({ launcherKey, launcherVersion: "1.4.2", hwid });
       return jsonResponse(validResponse);
     }) as typeof fetch;
-    await createLaunchTicket(launcherKey, endpoint, { fetchImpl, launcherVersion: "1.4.0", hwid });
+    await createLaunchTicket(launcherKey, endpoint, { fetchImpl, launcherVersion: "1.4.2", hwid });
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
   it("omits an empty HWID vector rather than sending an empty object", async () => {
     const fetchImpl = vi.fn(async (_input: URL | RequestInfo, init?: RequestInit) => {
-      expect(JSON.parse(String(init?.body))).toEqual({ launcherKey, launcherVersion: "1.4.0" });
+      expect(JSON.parse(String(init?.body))).toEqual({ launcherKey, launcherVersion: "1.4.2" });
       return jsonResponse(validResponse);
     }) as typeof fetch;
-    await createLaunchTicket(launcherKey, endpoint, { fetchImpl, launcherVersion: "1.4.0", hwid: {} });
+    await createLaunchTicket(launcherKey, endpoint, { fetchImpl, launcherVersion: "1.4.2", hwid: {} });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("sends companionObservation names and categories without PIDs or paths", async () => {
+    const companionObservation = {
+      schemaVersion: 1 as const,
+      status: "ok" as const,
+      scannedAt: "2026-08-16T12:00:00.000Z",
+      flagCount: 1,
+      flags: [{ name: "cheatengine-x86_64", category: "cheat" as const, matchedOn: "name" as const }],
+    };
+    const fetchImpl = vi.fn(async (_input: URL | RequestInfo, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.companionObservation).toEqual(companionObservation);
+      expect(JSON.stringify(body)).not.toContain("4321");
+      expect(JSON.stringify(body)).not.toContain("C:\\");
+      return jsonResponse(validResponse);
+    }) as typeof fetch;
+    await createLaunchTicket(launcherKey, endpoint, { fetchImpl, companionObservation });
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
@@ -92,6 +112,16 @@ describe("ROTK launch ticket client", () => {
     } finally {
       wallClock.mockRestore();
     }
+  });
+
+  it("accepts the checked-in launch ticket fixture", () => {
+    const identity = launchTicketInternals.parseTicketResponse(ticketOk, {
+      requestStartedAtMonotonicMs: 1_000,
+      receivedAtMonotonicMs: 1_100,
+    });
+    expect(identity.displayName).toBe("ROTK Player");
+    expect(identity.ticket).toHaveLength(43);
+    expect(identity.initialRemainingLifetimeMs).toBe(119_900);
   });
 
   it("tracks freshness from authority lifetime plus monotonic elapsed time", () => {

@@ -41,6 +41,13 @@ export const MAIN_COPY = {
       busy: "An asset synchronization is already in progress.",
       disabled: "Asset synchronization is disabled in the launcher settings.",
     },
+    devTools: {
+      unavailable: "Operator tools are only available in unpackaged builds, or in a packaged launcher signed in with an administrator key.",
+      inspectorUnavailable: "The Chromium inspector is only available in unpackaged launcher builds.",
+      folderOpenFailed: "Windows could not open that folder.",
+      windowUnavailable: "The launcher window is unavailable.",
+      exportFailed: "Could not write the diagnostics file.",
+    },
   },
   fr: {
     unexpectedError: "Une erreur inattendue est survenue.",
@@ -81,6 +88,13 @@ export const MAIN_COPY = {
     assets: {
       busy: "Une synchronisation des assets est déjà en cours.",
       disabled: "La synchronisation des assets est désactivée dans les réglages du launcher.",
+    },
+    devTools: {
+      unavailable: "Les outils opérateur ne sont disponibles que dans une build non empaquetée, ou dans un launcher empaqueté connecté avec une clé administrateur.",
+      inspectorUnavailable: "L’inspecteur Chromium n’est disponible que dans une build non empaquetée du launcher.",
+      folderOpenFailed: "Windows n’a pas pu ouvrir ce dossier.",
+      windowUnavailable: "Fenêtre indisponible.",
+      exportFailed: "Impossible d’écrire le fichier de diagnostics.",
     },
   },
 } as const;

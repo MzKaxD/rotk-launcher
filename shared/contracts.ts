@@ -133,6 +133,192 @@ export interface IntegrityCheckSummary {
   totalBytes: number;
 }
 
+export type DevToolsLogLevel = "info" | "warn" | "error";
+
+export type CompanionFlagCategory = "cheat" | "injector" | "debugger";
+
+export interface CompanionScanFlag {
+  name: string;
+  pid: number;
+  title: string;
+  category: CompanionFlagCategory;
+  matchedOn: "name" | "title";
+}
+
+export interface CompanionScanSummary {
+  status: "idle" | "ok" | "unavailable";
+  scannedAt: string | null;
+  processCount: number;
+  flags: CompanionScanFlag[];
+  error: string | null;
+}
+
+export interface DevToolsLogEntry {
+  at: string;
+  level: DevToolsLogLevel;
+  message: string;
+}
+
+export type AttestationDevStatus = "idle" | "attested" | "not-applicable" | "unavailable";
+
+export interface DevToolsFileCheck {
+  name: string;
+  present: boolean;
+}
+
+export interface DevToolsInstallHealth {
+  ok: boolean;
+  error: string | null;
+  markerPresent: boolean;
+  markerInstallId: string | null;
+  markerBuildId: string | null;
+  markerInstalledAt: string | null;
+  markerMatchesConfig: boolean | null;
+  files: DevToolsFileCheck[];
+}
+
+export interface DevToolsSecurity {
+  sandbox: boolean;
+  contextIsolation: boolean;
+  nodeIntegration: boolean;
+  webSecurity: boolean;
+  encryptionAvailable: boolean;
+}
+
+export interface DevToolsCombatLog {
+  name: string;
+  excerpt: string | null;
+  path: string | null;
+  updatedAt: string | null;
+  highlights: string[];
+}
+
+export interface DevToolsDefinitionLoad {
+  name: string;
+  count: number;
+}
+
+export interface KillFeedPlayerSummary {
+  name: string;
+  kills: number;
+  deaths: number;
+  headshots: number;
+  headshotPercent: number;
+  minKillGapMs: number | null;
+}
+
+/** Review hint only — battle-royale kills are often 2–4s apart. */
+export const TIGHT_KILL_GAP_MS = 1_500;
+
+export interface OperatorConnection {
+  loginSessionId: string;
+  name: string;
+  ip: string;
+  at: string;
+}
+
+export interface OperatorIpBan {
+  ip: string;
+  reason: string;
+  at: string;
+  active: boolean;
+}
+
+export type OperatorRemoteStatus = "idle" | "unavailable" | "forbidden" | "ok";
+
+export interface OperatorRemoteFeed {
+  status: OperatorRemoteStatus;
+  role: "moderator" | "admin" | null;
+  sessions: OperatorConnection[];
+  bans: OperatorIpBan[];
+  error: string | null;
+  fetchedAt: string | null;
+}
+
+export interface KillFeedSummary {
+  kills: number;
+  headshots: number;
+  windowStartedAt: string | null;
+  windowEndedAt: string | null;
+  players: KillFeedPlayerSummary[];
+}
+
+/**
+ * Operator diagnostics. Never includes player keys, launch tickets,
+ * session gateway URLs, or process command lines. The operator panel is
+ * available in unpackaged and packaged launches. Chromium inspector stays
+ * unpackaged-only.
+ */
+export interface DevToolsSnapshot {
+  note: string;
+  capturedAt: string;
+  appVersion: string;
+  electronVersion: string;
+  chromeVersion: string;
+  nodeVersion: string;
+  packaged: boolean;
+  isolatedUserData: boolean;
+  viteDevServer: boolean;
+  security: DevToolsSecurity;
+  paths: {
+    userData: string;
+    appPath: string;
+    logsRoot: string;
+    installationRoot: string | null;
+    installationRealPath: string | null;
+    sourceRoot: string | null;
+    destinationRoot: string | null;
+  };
+  launch: {
+    phase: LauncherPhase;
+    gamePid: number | null;
+    gameRunning: boolean;
+    canPlay: boolean;
+    updateRequired: boolean;
+    sessionGatewayListening: boolean;
+    attestation: {
+      status: AttestationDevStatus;
+      reason: string | null;
+    };
+  };
+  runtime: {
+    serverId: ServerId;
+    role: PlayerRole;
+    environment: "development" | "production";
+    label: string;
+    websiteOrigin: string;
+    gatewayOrigin: string;
+    voiceGrantOrigin: string;
+    loginList: string;
+    launchTicketUrl: string;
+    attestationChallengeUrl: string;
+  };
+  identityConfigured: Record<LaunchProfileId, boolean>;
+  assetSync: {
+    enabled: boolean;
+    status: AssetSyncStatus;
+    packVersion: string | null;
+  };
+  launcherUpdate: {
+    status: LauncherUpdateStatus;
+    availableVersion: string | null;
+  };
+  installHealth: DevToolsInstallHealth;
+  clientConfig: string | null;
+  ipcChannels: string[];
+  companionScan: CompanionScanSummary;
+  combatLogs: DevToolsCombatLog[];
+  killFeed: KillFeedSummary;
+  definitions: DevToolsDefinitionLoad[];
+  preferTestServer: boolean;
+  operatorWatching: boolean;
+  lastSessionDossier: string | null;
+  operatorConnections: OperatorConnection[];
+  operatorIpBans: OperatorIpBan[];
+  operatorRemote: OperatorRemoteFeed;
+  logs: DevToolsLogEntry[];
+}
+
 export interface LauncherSnapshot {
   appVersion: string;
   phase: LauncherPhase;
@@ -151,6 +337,8 @@ export interface LauncherSnapshot {
    *  until a newer version is installed. */
   updateRequired: boolean;
   canPlay: boolean;
+  /** Present in unpackaged builds, and in packaged admin launches with a key. */
+  devTools: DevToolsSnapshot | null;
 }
 
 export interface OperationResult<T = undefined> {
@@ -182,6 +370,19 @@ export interface RotkLauncherApi {
   verifyAssets(): Promise<OperationResult>;
   restoreVanillaAssets(): Promise<OperationResult>;
   setAssetSyncEnabled(enabled: boolean): Promise<OperationResult>;
+  copyDevDiagnostics(): Promise<OperationResult>;
+  exportDevDiagnostics(): Promise<OperationResult>;
+  openUserDataFolder(): Promise<OperationResult>;
+  openLogsFolder(): Promise<OperationResult>;
+  openGameLogsFolder(): Promise<OperationResult>;
+  openSessionsFolder(): Promise<OperationResult>;
+  captureSessionDossier(): Promise<OperationResult>;
+  clearDevLogs(): Promise<OperationResult>;
+  openChromiumDevTools(): Promise<OperationResult>;
+  reloadRenderer(): Promise<OperationResult>;
+  revalidateInstall(): Promise<OperationResult>;
+  scanCompanionProcesses(): Promise<OperationResult>;
+  banOperatorIp(ip: string, reason?: string): Promise<OperationResult>;
   minimizeWindow(): Promise<void>;
   closeWindow(): Promise<void>;
   onSnapshot(listener: (snapshot: LauncherSnapshot) => void): () => void;
@@ -207,6 +408,19 @@ export const IPC_CHANNELS = {
   verifyAssets: "asset-sync:verify",
   restoreVanillaAssets: "asset-sync:restore",
   setAssetSyncEnabled: "asset-sync:set-enabled",
+  copyDevDiagnostics: "devtools:copy-diagnostics",
+  exportDevDiagnostics: "devtools:export-diagnostics",
+  openUserDataFolder: "devtools:open-user-data",
+  openLogsFolder: "devtools:open-logs",
+  openGameLogsFolder: "devtools:open-game-logs",
+  openSessionsFolder: "devtools:open-sessions",
+  captureSessionDossier: "devtools:capture-session",
+  clearDevLogs: "devtools:clear-logs",
+  openChromiumDevTools: "devtools:open-chromium",
+  reloadRenderer: "devtools:reload-renderer",
+  revalidateInstall: "devtools:revalidate-install",
+  scanCompanionProcesses: "devtools:scan-companion-processes",
+  banOperatorIp: "devtools:ban-ip",
   minimizeWindow: "window:minimize",
   closeWindow: "window:close",
   snapshotChanged: "launcher:snapshot-changed",
