@@ -134,6 +134,7 @@ const FRENCH_ERRORS = new Map<string, string>([
 ]);
 
 const DYNAMIC_ENGLISH_ERRORS: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
+  [/^H1Z1 s’est fermé pendant son initialisation \(code Windows (.+)\)\.$/, (match) => `H1Z1 closed during initialization (Windows code ${match[1]}).`],
   [/^Client H1Z1 incomplet : (.+) est introuvable\.$/, (match) => `Incomplete H1Z1 client: ${match[1]} could not be found.`],
   [/^ROTK ne peut pas jouer depuis un dossier « (.+) »\. Choisis un emplacement indépendant de Steam\.$/, (match) => `ROTK cannot run from a “${match[1]}” folder. Choose a location outside Steam.`],
   [/^Cet emplacement renvoie physiquement vers « (.+) » et ne peut pas être utilisé\.$/, (match) => `This location physically resolves to “${match[1]}” and cannot be used.`],
