@@ -134,4 +134,14 @@ describe("public ROTK runtime", () => {
     expect(environment.H1Z1_OVERRIDE_STEAMID).toBe("76561198000000001");
     expect(environment.H1Z1_OVERRIDE_PERSONA).toBe("ROTK Player");
   });
+
+  it("formats native startup failures as unsigned Windows exception codes", () => {
+    expect(gameLauncherInternals.windowsExitCode(-1_073_741_571)).toBe(
+      "0xC00000FD",
+    );
+    expect(gameLauncherInternals.windowsExitCode(-1_073_741_819)).toBe(
+      "0xC0000005",
+    );
+    expect(gameLauncherInternals.windowsExitCode(null)).toBe("inconnu");
+  });
 });

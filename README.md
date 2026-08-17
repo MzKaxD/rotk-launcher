@@ -39,7 +39,7 @@ La branche `new-server` cible le serveur GAME 2 ROTK `162.19.94.95` et ses liste
 
 ## Patch crouch obligatoire
 
-Le launcher 1.4.0 déploie le hook crouch ADS-safe dans son proxy
+Le launcher 1.4.1 déploie le hook crouch ADS-safe dans son proxy
 `vivoxsdk_x64.dll`. Il préserve la DLL Vivox historique, installe le runtime
 Vivox 5, puis crée `rotk-crouch-parity.ini` dans le client. Ces fichiers sont
 vérifiés et réparés pendant l’installation, lors de l’adoption d’un client

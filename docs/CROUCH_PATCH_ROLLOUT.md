@@ -2,7 +2,7 @@
 
 ## Scope
 
-ROTK Launcher 1.4.0 ships the ADS-safe crouch parity v11 hook inside the
+ROTK Launcher 1.4.1 ships the ADS-safe crouch parity v11 hook inside the
 open-source Vivox 5 compatibility proxy. The launcher does not patch
 `H1Z1.exe` on disk.
 
@@ -13,7 +13,7 @@ The supported client is pinned to:
 - `H1Z1.exe` SHA-256:
   `5F5A4922B0671E4ED8FD415E753BE096EF7A17E360AE80E025F11544C8DB9261`;
 - Vivox+crouch proxy SHA-256:
-  `159A7F24CA2C7E99F3EA17B9A180DAC593ED2FB92B1DB2C10D9B4EA1AE8EDEE8`.
+  `13C5E2FA603A9D31588073270F63D492141C8D3AFDDFBC2DB18856456A65CADA`.
 
 The native hook also validates the BR1315 PE timestamp, image size and target
 machine-code signatures before modifying memory. An unknown client build is
@@ -47,7 +47,7 @@ mode=patch-v2
 animation=v11-ads-safe-pose-only-js-sine-idle400-200-move250
 cameraScalePitch=disabled
 h1z1Sha256=5F5A4922B0671E4ED8FD415E753BE096EF7A17E360AE80E025F11544C8DB9261
-proxySha256=159A7F24CA2C7E99F3EA17B9A180DAC593ED2FB92B1DB2C10D9B4EA1AE8EDEE8
+proxySha256=13C5E2FA603A9D31588073270F63D492141C8D3AFDDFBC2DB18856456A65CADA
 ```
 
 The direct camera hook must remain disabled. The v11 hook replaces only the
@@ -57,11 +57,11 @@ sync-event weights, which is the ADS-safe behavior validated in the client.
 ## Release order
 
 1. Merge the launcher changes into `main`.
-2. Publish the signed `v1.4.0` launcher release and its update metadata.
+2. Publish the signed `v1.4.1` launcher release and its update metadata.
 3. Verify an existing 1.3.0 installation upgrades and repairs an old proxy.
 4. Verify one fresh Steam-copy installation and one adopted isolated client.
 5. Only after the update is publicly available, set the account/ticket
-   service minimum launcher version to `1.4.0`.
+   service minimum launcher version to `1.4.1`.
 
 The last step is what makes the patch mandatory for every server-authenticated
 player. Enabling the server gate before the release is downloadable would
@@ -78,6 +78,13 @@ block all players.
 - migration from the legacy backup name and repair after deliberate corruption
   must pass on a copy of the real BR1315 files;
 - a runtime smoke load must succeed with the official Vivox 5 DLL present.
+- the exact packaged proxy must start a real BR1315 client past
+  `cClientRunStatePreInitialize`; a `LoadLibrary`-only smoke test is not enough.
+
+The withdrawn 1.4.0 artifact started the crouch worker from `DllMain`, while
+the Windows loader lock was still held. In the combined Vivox 5 build this
+terminated BR1315 in PreInitialize (`0xc00000fd`). 1.4.1 starts the same
+ADS-safe worker only after the first proxied Vivox initialization call.
 
 ## Rollback
 

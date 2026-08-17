@@ -1,0 +1,42 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+import { VIVOX_PROXY_SHA256 } from "../electron/services/vivox-client.js";
+
+const repositoryRoot = resolve(import.meta.dirname, "..");
+
+describe("native Vivox+crouch runtime contract", () => {
+  it("starts crouch only after the Windows loader phase", async () => {
+    const source = await readFile(
+      resolve(repositoryRoot, "native/vivoxproxy/vivoxsdk_x64_proxy.c"),
+      "utf8",
+    );
+    const initializeStart = source.indexOf("static BOOL CALLBACK initialize_original");
+    const initializeEnd = source.indexOf("static BOOL bearer_is_safe", initializeStart);
+    const dllMainStart = source.indexOf("BOOL WINAPI DllMain");
+
+    expect(initializeStart).toBeGreaterThanOrEqual(0);
+    expect(initializeEnd).toBeGreaterThan(initializeStart);
+    expect(dllMainStart).toBeGreaterThanOrEqual(0);
+    expect(source.slice(initializeStart, initializeEnd)).toContain(
+      "crouch_parity_start();",
+    );
+    expect(source.slice(dllMainStart)).not.toContain("crouch_parity_start();");
+  });
+
+  it("keeps the bundled binary, deployment policy and attestation sidecar aligned", async () => {
+    const binaryPath = resolve(
+      repositoryRoot,
+      "resources/patches/vivoxsdk_x64.dll",
+    );
+    const [binary, sidecar] = await Promise.all([
+      readFile(binaryPath),
+      readFile(`${binaryPath}.sha256`, "utf8"),
+    ]);
+    const bundledHash = createHash("sha256").update(binary).digest("hex");
+
+    expect(bundledHash).toBe(VIVOX_PROXY_SHA256);
+    expect(sidecar.trim().split(/\s+/u)[0]).toBe(VIVOX_PROXY_SHA256);
+  });
+});

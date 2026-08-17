@@ -17,6 +17,8 @@ import {
 } from "./launch-ticket.js";
 import { deployVivoxCompatibility } from "./vivox-client.js";
 
+const GAME_STARTUP_STABILITY_MS = 3_000;
+
 /**
  * What one attestation attempt produced.
  * - `attested`: a block to carry with the ticket request.
@@ -203,6 +205,48 @@ function validateVoiceGrantOrigin(value: string): string {
   return parsed.origin;
 }
 
+function windowsExitCode(code: number | null): string {
+  if (code === null) return "inconnu";
+  return `0x${(code >>> 0).toString(16).padStart(8, "0").toUpperCase()}`;
+}
+
+function waitForStableStartup(
+  child: ChildProcess,
+  durationMs = GAME_STARTUP_STABILITY_MS,
+): Promise<void> {
+  if (child.exitCode !== null) {
+    return Promise.reject(new Error(
+      `H1Z1 s’est fermé pendant son initialisation (code Windows ${windowsExitCode(child.exitCode)}).`,
+    ));
+  }
+  return new Promise((resolve, reject) => {
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      child.off("exit", onExit);
+      child.off("error", onError);
+    };
+    const onExit = (code: number | null): void => {
+      cleanup();
+      reject(new Error(
+        `H1Z1 s’est fermé pendant son initialisation (code Windows ${windowsExitCode(code)}).`,
+      ));
+    };
+    const onError = (error: Error): void => {
+      cleanup();
+      reject(new Error(`Windows n’a pas pu initialiser H1Z1 : ${error.message}`));
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, durationMs);
+    child.once("exit", onExit);
+    child.once("error", onError);
+    // Cover the narrow race where the process exits between the initial
+    // exitCode check and listener registration.
+    if (child.exitCode !== null) onExit(child.exitCode);
+  });
+}
+
 export class GameLauncher {
   private child: ChildProcess | null = null;
 
@@ -308,6 +352,11 @@ export class GameLauncher {
       };
       child.once("exit", (code) => finalize(code));
       child.once("error", () => finalize(null));
+      // Do not report IN GAME for a native process that dies in its loader or
+      // PreInitialize path. This was the visible failure mode of launcher
+      // 1.4.0: H1Z1 exited with 0xc00000fd immediately after spawn, while the
+      // renderer had already switched to the running state.
+      await waitForStableStartup(child);
       child.unref();
       return child.pid;
     } catch (error) {
@@ -324,4 +373,5 @@ export const gameLauncherInternals = {
   prepareClient,
   buildLaunchArguments,
   validateVoiceGrantOrigin,
+  windowsExitCode,
 };
