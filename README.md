@@ -32,14 +32,14 @@ Une installation terminée est mémorisée dans `%APPDATA%\ROTK Launcher\config.
 - échange HTTPS de cette clé durable contre un ticket court à usage unique, avec validation stricte du ROTKID, du GameAccountGUID et du SteamID renvoyés ;
 - mini-gateway Steam de session lié exclusivement à `127.0.0.1` pendant l’exécution du jeu : H1Z1 reçoit uniquement le ticket court, jamais la clé durable ;
 - shim `steam_api64.dll` open source, compilable de façon déterministe avec Zig ;
-- proxy Vivox 5 open source intégrant le patch crouch v11 obligatoire, vérifié et réparé avant chaque lancement ;
+- proxy Vivox 5 open source intégrant le patch crouch v12 obligatoire, vérifié et réparé avant chaque lancement ;
 - isolation Electron (`contextIsolation`, sandbox, IPC limité et navigation externe filtrée).
 
 La branche `new-server` cible le serveur GAME 2 ROTK `162.19.94.95` et ses listeners login `20042` à `20045`. Le futur manifeste runtime HTTPS signé remplacera cette configuration bornée sans exposer d’arguments arbitraires au renderer.
 
 ## Patch crouch obligatoire
 
-Le launcher 1.4.1 déploie le hook crouch ADS-safe dans son proxy
+Le launcher 1.4.2 déploie le hook crouch ADS-safe dans son proxy
 `vivoxsdk_x64.dll`. Il préserve la DLL Vivox historique, installe le runtime
 Vivox 5, puis crée `rotk-crouch-parity.ini` dans le client. Ces fichiers sont
 vérifiés et réparés pendant l’installation, lors de l’adoption d’un client
@@ -51,6 +51,12 @@ le build BR1315 `1.0.326.439939`, après validation du SHA-256 du fichier, de
 l’en-tête PE et des signatures machine ciblées. Le hook caméra expérimental
 reste désactivé : seul le poids de pose crouch validé est remplacé afin de
 préserver les événements Morpheme utilisés par l’ADS.
+
+La v12 conserve séparément les transitions de 256 réseaux d’animation, détecte
+les réseaux recréés pendant un handoff et ne remplace jamais une transition
+encore active. Si le cache ne peut exceptionnellement pas accepter un nouvel
+acteur, ce seul appel reste sur le blend natif au lieu de modifier un joueur
+déjà animé.
 
 Le séquencement de release, le verrou serveur et le rollback sont documentés
 dans [`docs/CROUCH_PATCH_ROLLOUT.md`](docs/CROUCH_PATCH_ROLLOUT.md).
@@ -132,7 +138,7 @@ La CI Windows fixe Zig à la version `0.15.2`, compile deux fois le shim et le p
 | `electron/` | processus principal, preload et services système |
 | `shared/` | contrats TypeScript partagés |
 | `native/steamshim/` | source C et script de build reproductible du shim |
-| `native/vivoxproxy/` | proxy vocal, compatibilité Vivox 5 et hook crouch v11 |
+| `native/vivoxproxy/` | proxy vocal, compatibilité Vivox 5 et hook crouch v12 |
 | `resources/patches/` | DLL open source embarqué dans l’application |
 | `public/branding/` | identité visuelle propre au projet |
 | `tests/` | tests unitaires des règles critiques |

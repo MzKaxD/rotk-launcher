@@ -25,6 +25,69 @@ describe("native Vivox+crouch runtime contract", () => {
     expect(source.slice(dllMainStart)).not.toContain("crouch_parity_start();");
   });
 
+  it("keeps a full Solo roster isolated without evicting live transitions", async () => {
+    const [patchSource, cacheSource] = await Promise.all([
+      readFile(
+        resolve(repositoryRoot, "native/vivoxproxy/crouch_parity_patch.h"),
+        "utf8",
+      ),
+      readFile(
+        resolve(repositoryRoot, "native/vivoxproxy/crouch_state_cache.h"),
+        "utf8",
+      ),
+    ]);
+    const pressureStart = patchSource.indexOf("if (state == NULL)");
+    const pressureEnd = patchSource.indexOf(
+      "if (cache_lookup.event == CROUCH_STATE_CACHE_EVICTED)",
+      pressureStart,
+    );
+    const failOpen = patchSource.slice(pressureStart, pressureEnd);
+    const sequenceRead = patchSource.indexOf(
+      "InterlockedIncrement64(&g_crouch_blend_call_count)",
+      patchSource.indexOf("static uint16_t crouch_blend_weight_hook"),
+    );
+    const controlRead = patchSource.indexOf(
+      "crouch_read_state_control(",
+      sequenceRead,
+    );
+    const lockStart = patchSource.indexOf(
+      "AcquireSRWLockExclusive(&g_crouch_state_lock)",
+      controlRead,
+    );
+    const identityValidation = patchSource.indexOf(
+      "crouch_validate_state_identity(",
+      lockStart,
+    );
+    const timestampRead = patchSource.indexOf(
+      "QueryPerformanceCounter(&now)",
+      identityValidation,
+    );
+
+    expect(cacheSource).toContain("#define CROUCH_STATE_CAPACITY 256U");
+    expect(cacheSource).toContain("candidate->generation != generation");
+    expect(cacheSource).toContain("!crouch_state_cache_is_active(candidate, now_counter)");
+    expect(cacheSource).toContain("selected = empty != NULL ? empty : oldest_stale");
+    expect(cacheSource).not.toContain("((uintptr_t)network >> 4U)");
+    expect(sequenceRead).toBeGreaterThanOrEqual(0);
+    expect(controlRead).toBeGreaterThan(sequenceRead);
+    expect(lockStart).toBeGreaterThan(controlRead);
+    expect(identityValidation).toBeGreaterThan(lockStart);
+    expect(timestampRead).toBeGreaterThan(identityValidation);
+    expect(pressureStart).toBeGreaterThanOrEqual(0);
+    expect(pressureEnd).toBeGreaterThan(pressureStart);
+    for (const stockWeight of [
+      "trajectory_weight",
+      "events_weight",
+      "sampled_events_weight",
+      "sync_events_weight",
+    ]) {
+      expect(failOpen).toContain(stockWeight);
+    }
+    expect(failOpen).toMatch(
+      /return original\(\s*attrib_blend_weights,\s*node_child_weights,\s*active_node_connections,\s*network,\s*node_def,\s*trajectory_weight,\s*events_weight,\s*sampled_events_weight,\s*sync_events_weight,\s*is_additive\s*\);/u,
+    );
+  });
+
   it("keeps the bundled binary, deployment policy and attestation sidecar aligned", async () => {
     const binaryPath = resolve(
       repositoryRoot,
