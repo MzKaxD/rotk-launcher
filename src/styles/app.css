@@ -872,6 +872,12 @@ button:focus-visible {
   letter-spacing: 0.08em;
 }
 
+.server-select__trigger strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .launcher-footer__status small {
   display: block;
   max-width: 470px;
@@ -1947,12 +1953,20 @@ button:focus-visible {
   }
 
   .launcher-footer {
-    grid-template-columns: minmax(300px, 1fr) 245px 104px 220px;
+    grid-template-columns: minmax(220px, 1fr) minmax(320px, 1.2fr) 96px 210px;
   }
 
-  .launcher-footer__status,
-  .launcher-footer__server {
+  .launcher-footer__status {
     padding-inline: 20px;
+  }
+
+  .server-select__trigger {
+    gap: 10px;
+    padding-inline: 16px;
+  }
+
+  .server-select__trigger > .server-population small {
+    display: none;
   }
 
   .news-carousel__content {
