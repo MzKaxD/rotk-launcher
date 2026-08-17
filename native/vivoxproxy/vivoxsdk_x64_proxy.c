@@ -587,6 +587,14 @@ static BOOL CALLBACK initialize_original(PINIT_ONCE once,
     proxy_trace_once(
         TRACE_ORIGINAL_READY,
         "[rotk-vivoxproxy] original init: ready");
+    /*
+     * Never create the crouch worker from DllMain.  In the combined Vivox 5
+     * proxy, starting it while the Windows loader lock is held terminates
+     * BR1315 in PreInitialize (0xc00000fd).  The first proxied Vivox call is
+     * made after loader initialization and before character animation assets
+     * are used, which is the safe and deterministic start point.
+     */
+    crouch_parity_start();
     return TRUE;
 }
 
@@ -2697,7 +2705,6 @@ BOOL WINAPI DllMain(HINSTANCE instance,
     if (reason == DLL_PROCESS_ATTACH) {
         g_proxy_module = instance;
         DisableThreadLibraryCalls(instance);
-        crouch_parity_start();
     }
     return TRUE;
 }

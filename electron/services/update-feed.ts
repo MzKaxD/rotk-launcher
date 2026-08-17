@@ -3,25 +3,22 @@ import { dirname, join } from "node:path";
 import type { PublishedUpdate } from "../../shared/contracts.js";
 import { WEBSITE_ORIGIN } from "../constants.js";
 
-const FIRESTORE_QUERY_URL =
-  "https://firestore.googleapis.com/v1/projects/rotk-project/databases/(default)/documents:runQuery";
+const UPDATE_FEED_URL = `${WEBSITE_ORIGIN}/api/updates`;
 const MAX_FEED_BYTES = 1_000_000;
 
-interface FirestoreValue {
-  stringValue?: string;
-  timestampValue?: string;
-  nullValue?: null;
+interface PublishedUpdateApiItem {
+  id?: unknown;
+  type?: unknown;
+  title?: unknown;
+  summary?: unknown;
+  version?: unknown;
+  category?: unknown;
+  coverImage?: unknown;
+  publishedAt?: unknown;
 }
 
-interface FirestoreQueryRow {
-  document?: {
-    name?: string;
-    fields?: Record<string, FirestoreValue>;
-  };
-}
-
-function readString(fields: Record<string, FirestoreValue>, key: string): string {
-  return fields[key]?.stringValue?.trim() ?? "";
+function readString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function normalizeCoverImage(value: string): string {
@@ -34,18 +31,36 @@ function normalizeCoverImage(value: string): string {
   return "";
 }
 
-function parseRows(value: unknown): PublishedUpdate[] {
-  if (!Array.isArray(value)) throw new Error("Unexpected Firestore response");
-  const updates: PublishedUpdate[] = [];
+/**
+ * Keeps the newest patch note first so the launcher always opens on the most
+ * recent game release. The second carousel slot remains available for the
+ * newest other publication (or the previous patch note).
+ */
+function selectLauncherUpdates(updates: PublishedUpdate[]): PublishedUpdate[] {
+  const sorted = [...updates].sort(
+    (left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt),
+  );
+  const latestPatch = sorted.find((update) => update.type === "patch");
+  if (!latestPatch) return sorted.slice(0, 2);
+  return [latestPatch, ...sorted.filter((update) => update.id !== latestPatch.id)].slice(0, 2);
+}
 
-  for (const row of value as FirestoreQueryRow[]) {
-    const fields = row.document?.fields;
-    const name = row.document?.name;
-    if (!fields || !name) continue;
-    const id = name.split("/").at(-1) ?? "";
-    const type = readString(fields, "type");
-    const title = readString(fields, "title");
-    const publishedAt = fields.publishedAt?.timestampValue ?? "";
+function parseFeed(value: unknown): PublishedUpdate[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Unexpected update feed response");
+  }
+
+  const entries = (value as { updates?: unknown }).updates;
+  if (!Array.isArray(entries)) throw new Error("Unexpected update feed response");
+
+  const updates: PublishedUpdate[] = [];
+  for (const entry of entries as PublishedUpdateApiItem[]) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+
+    const id = readString(entry.id);
+    const type = readString(entry.type);
+    const title = readString(entry.title);
+    const publishedAt = readString(entry.publishedAt);
     if (
       !id ||
       !title ||
@@ -60,18 +75,16 @@ function parseRows(value: unknown): PublishedUpdate[] {
       id,
       type,
       title: title.slice(0, 120),
-      summary: readString(fields, "summary").slice(0, 360),
-      version: readString(fields, "version") || null,
-      category: readString(fields, "category").slice(0, 64),
-      coverImageUrl: normalizeCoverImage(readString(fields, "coverImage")),
+      summary: readString(entry.summary).slice(0, 360),
+      version: readString(entry.version) || null,
+      category: readString(entry.category).slice(0, 64),
+      coverImageUrl: normalizeCoverImage(readString(entry.coverImage)),
       publishedAt,
       siteUrl: `${WEBSITE_ORIGIN}/updates/${encodeURIComponent(id)}`,
     });
   }
 
-  return updates
-    .sort((left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt))
-    .slice(0, 2);
+  return selectLauncherUpdates(updates);
 }
 
 function isCachedUpdate(value: unknown): value is PublishedUpdate {
@@ -92,7 +105,8 @@ export class UpdateFeedService {
   private readonly cachePath: string;
 
   constructor(userDataDirectory: string) {
-    this.cachePath = join(userDataDirectory, "updates-cache.v1.json");
+    // v2 deliberately ignores the old Firestore-backed cache.
+    this.cachePath = join(userDataDirectory, "updates-cache.v2.json");
   }
 
   async getLatest(): Promise<PublishedUpdate[]> {
@@ -101,25 +115,22 @@ export class UpdateFeedService {
       const timeout = setTimeout(() => controller.abort(), 7_000);
       let response: Response;
       try {
-        response = await fetch(FIRESTORE_QUERY_URL, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            structuredQuery: {
-              from: [{ collectionId: "publishedUpdates" }],
-              orderBy: [{ field: { fieldPath: "publishedAt" }, direction: "DESCENDING" }],
-              limit: 2,
-            },
-          }),
+        response = await fetch(UPDATE_FEED_URL, {
+          method: "GET",
+          headers: { accept: "application/json" },
           signal: controller.signal,
         });
       } finally {
         clearTimeout(timeout);
       }
       if (!response.ok) throw new Error(`Feed HTTP ${response.status}`);
+      const responseUrl = new URL(response.url || UPDATE_FEED_URL);
+      if (responseUrl.protocol !== "https:" || responseUrl.origin !== WEBSITE_ORIGIN) {
+        throw new Error("Feed redirected outside rotk.app");
+      }
       const body = await response.text();
       if (Buffer.byteLength(body, "utf8") > MAX_FEED_BYTES) throw new Error("Feed too large");
-      const updates = parseRows(JSON.parse(body));
+      const updates = parseFeed(JSON.parse(body));
       if (updates.length === 0) throw new Error("Feed empty");
       await this.writeCache(updates);
       return updates;
@@ -146,7 +157,7 @@ export class UpdateFeedService {
 }
 
 export const updateFeedInternals = {
-  parseRows,
+  parseFeed,
   normalizeCoverImage,
-  queryUrl: FIRESTORE_QUERY_URL,
+  feedUrl: UPDATE_FEED_URL,
 };
