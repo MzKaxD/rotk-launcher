@@ -135,7 +135,7 @@ export function ServerSelect({ snapshot, disabled, onSelect }: ServerSelectProps
         <Gauge size={18} />
         <div>
           <span>{copy.footer.environment}</span>
-          <strong>{snapshot.runtime.label}</strong>
+          <strong title={snapshot.runtime.label}>{snapshot.runtime.label}</strong>
         </div>
         <Population
           copy={copy}
