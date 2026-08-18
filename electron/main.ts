@@ -41,8 +41,10 @@ import {
 } from "../shared/launch-profile.js";
 import {
   APP_NAME,
+  APP_USER_MODEL_ID,
   RECOMMENDED_INSTALL_PARENT_NAME,
   ROTK_INSTALL_DIRECTORY_NAME,
+  resolveAppIconPath,
   resolveBundledShimPath,
   resolveBundledVivoxProxyPath,
   resolveBundledVivoxRuntimePath,
@@ -92,6 +94,7 @@ import {
 } from "./services/integrity-attestation.js";
 
 app.setName(APP_NAME);
+app.setAppUserModelId(APP_USER_MODEL_ID);
 if (!app.isPackaged && process.env.ROTK_USER_DATA_DIR) {
   app.setPath("userData", resolve(process.env.ROTK_USER_DATA_DIR));
 } else {
@@ -947,6 +950,7 @@ function createWindow(): BrowserWindow {
     frame: false,
     backgroundColor: "#090909",
     title: "ROTK Launcher",
+    icon: resolveAppIconPath(),
     webPreferences: {
       preload: join(currentDirectory, "preload.cjs"),
       contextIsolation: true,
