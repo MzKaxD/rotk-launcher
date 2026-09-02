@@ -61,6 +61,14 @@ déjà animé.
 Le séquencement de release, le verrou serveur et le rollback sont documentés
 dans [`docs/CROUCH_PATCH_ROLLOUT.md`](docs/CROUCH_PATCH_ROLLOUT.md).
 
+## Réparation des assets 1.4.5
+
+Le launcher 1.4.5 re-hashe désormais à chaque synchronisation les assets
+distribués comme fichiers autonomes, même lorsque leur taille n’a pas changé.
+Cela couvre notamment `Weapons.bnk_pc` et `Weapons_SFX.bnk_pc` du feed 1.5.0 :
+le lancement normal comme **Vérifier les fichiers** restaurent automatiquement
+la copie officielle si une variante vanilla de même taille l’a remplacée.
+
 ## Retrait du proxy gameplay 1.4.3
 
 Le launcher 1.4.4 ne distribue et ne charge plus le proxy DirectInput gameplay.
