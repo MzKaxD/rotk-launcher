@@ -73,7 +73,10 @@ describe("public ROTK runtime", () => {
       "server=51.255.160.224:20042;51.255.160.224:20043;51.255.160.224:20044;51.255.160.224:20045",
     );
     expect(args).toContain("CommandQueue:motd_uri=http://51.255.160.224:8080/");
+    expect(args).toContain("WebResources:GameCrashUrl=https://test.rotk.app/game-error?code=G");
+    expect(args).toContain("Help:PetitionUri=https://test.rotk.app/support?locale=%s");
     expect(args.join(" ")).not.toContain("162.19.94.95");
+    expect(args.join(" ")).not.toContain("https://rotk.app");
   });
 
   it("passes only the short ticket and bounded GAME 2 endpoints to H1Z1", () => {
@@ -97,6 +100,11 @@ describe("public ROTK runtime", () => {
     );
     expect(args).toContain("VivoxGrantUrl=https://rotk.app");
     expect(args).toContain("CommandQueue:motd_uri=http://162.19.94.95:8080/");
+    // Nothing the client opens or uploads on its own may reach Daybreak.
+    expect(args).toContain("WebResources:GameCrashUrl=https://rotk.app/game-error?code=G");
+    expect(args).toContain("Help:PetitionUri=https://rotk.app/support?locale=%s");
+    expect(args).toContain("CrashReporter:Address=127.0.0.1:15081");
+    expect(args.join(" ")).not.toMatch(/h1z1\.com|daybreakgames\.com|custhelp\.com/i);
     expect(args.some((argument) => (
       argument.includes("162.19.94.95:8080/rest/auth/session/create")
     ))).toBe(false);

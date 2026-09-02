@@ -36,6 +36,13 @@ describe("ClientConfig synchronization", () => {
       "[LaunchTelemetry]",
       "Url=http://old.invalid/telemetry",
       "",
+      "[CrashReporter]",
+      "Address=recap.daybreakgames.com:15081",
+      "NoUploadFromInit=1",
+      "",
+      "[WebResources]",
+      "GameCrashUrl=https://www.h1z1.com/king-of-the-kill/game-error?code=G",
+      "",
     ].join("\r\n");
 
     const once = synchronizeClientConfig(original, runtime, localCreateSessionUrl);
@@ -49,6 +56,40 @@ describe("ClientConfig synchronization", () => {
     expect(once).toContain(`SteamGatewayUrl=${localCreateSessionUrl}`);
     expect(once).not.toContain(authKey);
     expect(once).toContain("SoeAuthTicketUrl=https://gateway.rotk.app/rest/client/session/create");
+    expect(once).toContain("[WebResources]\r\nGameCrashUrl=https://rotk.app/game-error?code=G");
+    expect(once).toContain("[CrashReporter]\r\nAddress=127.0.0.1:15081\r\nNoUploadFromInit=1");
+    expect(once).toContain("[Help]\r\nPetitionUri=https://rotk.app/support?locale=%s");
+  });
+
+  it("leaves no Daybreak endpoint the client could open or upload to", () => {
+    // The stock ClientConfig.ini shipped with the game, endpoint lines only.
+    const stock = [
+      "[INGAMEPURCHASE]",
+      "SoeAuthTicketUrl=https://partner.soe.platformpublishing.com/rest/client/session/create",
+      "",
+      "[CrashReporter]",
+      "Address=recap.daybreakgames.com:15081",
+      "NoUploadFromInit=1",
+      "",
+      "[WebResources]",
+      "GameCrashUrl=https://www.h1z1.com/king-of-the-kill/game-error?code=G",
+      "",
+      "[Help]",
+      "PetitionUri=http://soe-%s.custhelp.com/app/answers/list/p/5833/c/5933",
+      "",
+      "[CommandQueue]",
+      "motd_uri=http://assets.daybreakgames.com/",
+      "",
+    ].join("\r\n");
+
+    const synchronized = synchronizeClientConfig(stock, runtime, localCreateSessionUrl);
+
+    expect(synchronized).not.toMatch(/h1z1\.com|daybreakgames\.com|custhelp\.com|platformpublishing\.com/i);
+    expect(synchronized.match(/^GameCrashUrl=/gim)).toHaveLength(1);
+    expect(synchronized.match(/^Address=/gim)).toHaveLength(1);
+    expect(synchronized.match(/^PetitionUri=/gim)).toHaveLength(1);
+    // The client appends the code digits right after "G", then "&info=".
+    expect(synchronized).toMatch(/^GameCrashUrl=https:\/\/rotk\.app\/game-error\?code=G$/m);
   });
 
   it("inserts root directives before the first INI section", () => {
