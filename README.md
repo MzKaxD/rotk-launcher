@@ -33,6 +33,7 @@ Une installation terminée est mémorisée dans `%APPDATA%\ROTK Launcher\config.
 - mini-gateway Steam de session lié exclusivement à `127.0.0.1` pendant l’exécution du jeu : H1Z1 reçoit uniquement le ticket court, jamais la clé durable ;
 - shim `steam_api64.dll` open source, compilable de façon déterministe avec Zig ;
 - proxy Vivox 5 open source intégrant le patch crouch v12 obligatoire, vérifié et réparé avant chaque lancement ;
+- proxy DirectInput `dinput8.dll` open source dédié au comportement shotgun/sprint, sans modification du proxy Vivox ;
 - isolation Electron (`contextIsolation`, sandbox, IPC limité et navigation externe filtrée).
 
 La branche `new-server` cible le serveur GAME 2 ROTK `162.19.94.95` et ses listeners login `20042` à `20045`. Le futur manifeste runtime HTTPS signé remplacera cette configuration bornée sans exposer d’arguments arbitraires au renderer.
@@ -61,6 +62,24 @@ déjà animé.
 Le séquencement de release, le verrou serveur et le rollback sont documentés
 dans [`docs/CROUCH_PATCH_ROLLOUT.md`](docs/CROUCH_PATCH_ROLLOUT.md).
 
+## Patch gameplay shotgun obligatoire
+
+Le launcher 1.4.3 installe le patch shotgun dans une DLL indépendante,
+`dinput8.dll`. Il ne place aucun nouveau changement shotgun dans
+`vivoxsdk_x64.dll` : le proxy Vivox conserve uniquement sa compatibilité voix et
+le patch crouch déjà publié. La DLL DirectInput transfère les six exports vers
+la DLL Windows chargée depuis `System32`, puis applique en mémoire l’anti-slow
+shotgun et la reprise immédiate du sprint lorsque `Maj` reste appuyée.
+
+Le launcher vérifie le build exact de `H1Z1.exe`, la taille et le SHA-256 du
+proxy, puis installe ou répare `dinput8.dll` avant l’attestation et avant chaque
+lancement. Le fichier reste explicitement inclus dans l’attestation ; il n’est
+jamais exclu, sauvegardé sous un faux nom ou distribué par le flux d’assets.
+
+Le contrat binaire, les protections runtime et le cutover serveur 1.4.3 sont
+documentés dans
+[`docs/SHOTGUN_GAMEPLAY_PATCH_ROLLOUT.md`](docs/SHOTGUN_GAMEPLAY_PATCH_ROLLOUT.md).
+
 ## Authentification du compte joueur
 
 Le launcher ne génère aucune identité joueur. L’utilisateur doit se connecter avec Steam sur [rotk.app](https://rotk.app), ouvrir **Avatar → Account settings → ROTK launcher key**, générer sa clé puis la coller dans le launcher. Sans clé hexadécimale valide de 32 caractères, le bouton de lancement ouvre cette procédure au lieu de démarrer H1Z1.
@@ -84,9 +103,9 @@ npm run dev
 ```
 
 Les commandes `dev`, `dev:isolated`, `dist` et `dist:dir` reconstruisent
-automatiquement le proxy vocal ROTK puis vérifient le runtime Vivox officiel
-avant de démarrer. Un worktree frais ne peut ainsi pas lancer un client avec
-un proxy absent ou incohérent.
+automatiquement les proxies Vivox et DirectInput, puis vérifient le runtime
+Vivox officiel avant de démarrer. Un worktree frais ne peut ainsi pas lancer un
+client avec un binaire natif absent ou incohérent.
 
 Le mode développeur normal réutilise la configuration du launcher installé. Pour un test volontairement isolé, sans toucher à cette configuration :
 
@@ -128,7 +147,10 @@ Pour générer uniquement un dossier de prévisualisation local non signé :
 npm run dist:dir
 ```
 
-La CI Windows fixe Zig à la version `0.15.2`, compile deux fois le shim et le proxy Vivox+crouch, puis compare les SHA-256 obtenus avant de construire l’application. Les artefacts CI utilisent toujours les DLL recompilés depuis leurs sources publiques.
+La CI Windows fixe Zig à la version `0.15.2`, compile de façon reproductible le
+shim Steam, le proxy Vivox+crouch et le proxy DirectInput+shotgun, puis compare
+leurs SHA-256 avant de construire l’application. Les artefacts CI utilisent
+toujours les DLL recompilées depuis leurs sources publiques.
 
 ## Architecture
 
@@ -139,7 +161,8 @@ La CI Windows fixe Zig à la version `0.15.2`, compile deux fois le shim et le p
 | `shared/` | contrats TypeScript partagés |
 | `native/steamshim/` | source C et script de build reproductible du shim |
 | `native/vivoxproxy/` | proxy vocal, compatibilité Vivox 5 et hook crouch v12 |
-| `resources/patches/` | DLL open source embarqué dans l’application |
+| `native/gameplaypatch/` | proxy DirectInput et hook gameplay shotgun/sprint |
+| `resources/patches/` | DLL open source embarquées dans l’application |
 | `public/branding/` | identité visuelle propre au projet |
 | `tests/` | tests unitaires des règles critiques |
 | `contracts/` | contrats versionnés pour la future configuration OVH signée |
@@ -156,7 +179,11 @@ Les captures du jeu ne sont pas versionnées dans ce dépôt. Voir [ASSET_LICENS
 
 ## Releases vérifiables
 
-Le workflow de release reconstruit le shim depuis sa source C, exécute les tests, génère l’installateur Windows et publie ses sommes SHA-256 ainsi qu’une attestation de provenance GitHub. Le workflow refuse un tag différent de la version `package.json`, un commit extérieur à `main` ou un shim ne correspondant pas à sa source publique.
+Le workflow de release reconstruit les DLL natives depuis leurs sources C,
+exécute les tests, génère l’installateur Windows et publie ses sommes SHA-256
+ainsi qu’une attestation de provenance GitHub. Il refuse notamment un tag
+différent de la version `package.json`, un commit extérieur à `main` ou un
+`dinput8.dll` qui diverge de son build reproductible et de son sidecar.
 
 La signature Authenticode est optionnelle. Si l’environnement GitHub `release` contient les secrets `WINDOWS_CERTIFICATE_BASE64` et `WINDOWS_CERTIFICATE_PASSWORD` ainsi que la variable `WINDOWS_PUBLISHER_SUBJECT` (le sujet Authenticode exact du certificat), la release est signée et le workflow échoue si l’installateur, l’exécutable principal ou le shim n’a pas une signature valide, horodatée et cohérente avec l’éditeur attendu. Les secrets ne sont exposés qu’aux étapes de détection et de packaging.
 

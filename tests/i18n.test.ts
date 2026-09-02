@@ -26,6 +26,12 @@ describe("launcher locales", () => {
         "en",
       ),
     ).toBe("The mandatory ROTK crouch patch was not activated correctly.");
+    expect(
+      localizeServiceError(
+        "Le patch de gameplay ROTK obligatoire n'a pas été copié correctement.",
+        "en",
+      ),
+    ).toBe("The mandatory ROTK gameplay patch was not copied correctly.");
   });
 
   it("localizes internal English errors for the French interface", () => {

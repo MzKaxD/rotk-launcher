@@ -29,6 +29,7 @@ import {
   validateInstallDestination,
 } from "./path-policy.js";
 import { identifyClientBuild } from "./client-build.js";
+import { deployGameplayPatch } from "./gameplay-patch.js";
 import { deployVivoxCompatibility } from "./vivox-client.js";
 
 const MAX_CLIENT_FILES = 250_000;
@@ -56,6 +57,7 @@ export interface InstallRequest {
   sourceRoot: string;
   destinationRoot: string;
   shimPath: string;
+  gameplayPatchPath: string;
   vivoxProxyPath: string;
   vivoxRuntimePath: string;
   launcherVersion: string;
@@ -66,6 +68,7 @@ export interface InstallRequest {
 export interface AdoptExistingClientRequest {
   root: string;
   shimPath: string;
+  gameplayPatchPath: string;
   vivoxProxyPath: string;
   vivoxRuntimePath: string;
   launcherVersion: string;
@@ -242,6 +245,7 @@ export async function adoptExistingClient(
     request.vivoxProxyPath,
     request.vivoxRuntimePath,
   );
+  await deployGameplayPatch(root, request.gameplayPatchPath);
   await patchBattlEye(root);
 
   const marker: InstallationMarker = {
@@ -251,7 +255,7 @@ export async function adoptExistingClient(
     sourceRoot: existingMarker?.sourceRoot ?? root,
     installedAt: existingMarker?.installedAt ?? new Date().toISOString(),
     launcherVersion: request.launcherVersion,
-    patchVersion: "nosteam-shim-1+vivox5-compat-1+crouch-parity-v12",
+    patchVersion: "nosteam-shim-1+vivox5-compat-1+crouch-parity-v12+shotgun-sprint-v1",
     criticalHashes,
   };
   const markerPath = join(root, INSTALL_MARKER_NAME);
@@ -382,6 +386,7 @@ export async function installClient(request: InstallRequest): Promise<Installati
       request.vivoxProxyPath,
       request.vivoxRuntimePath,
     );
+    await deployGameplayPatch(stagingRoot, request.gameplayPatchPath);
     await patchBattlEye(stagingRoot);
 
     const marker: InstallationMarker = {
@@ -391,7 +396,7 @@ export async function installClient(request: InstallRequest): Promise<Installati
       sourceRoot,
       installedAt: new Date().toISOString(),
       launcherVersion: request.launcherVersion,
-      patchVersion: "nosteam-shim-1+vivox5-compat-1+crouch-parity-v12",
+      patchVersion: "nosteam-shim-1+vivox5-compat-1+crouch-parity-v12+shotgun-sprint-v1",
       criticalHashes: sourceCriticalHashes,
     };
     await writeFile(join(stagingRoot, INSTALL_MARKER_NAME), `${JSON.stringify(marker, null, 2)}\n`, {
