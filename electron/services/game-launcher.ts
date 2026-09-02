@@ -15,7 +15,7 @@ import {
   createLaunchTicket,
   type LaunchTicketIdentity,
 } from "./launch-ticket.js";
-import { deployGameplayPatch } from "./gameplay-patch.js";
+import { removeRetiredGameplayPatch } from "./retired-gameplay-patch.js";
 import { deployVivoxCompatibility } from "./vivox-client.js";
 
 const GAME_STARTUP_STABILITY_MS = 3_000;
@@ -41,7 +41,6 @@ export interface LaunchRequest {
   runtime: RuntimeConfig;
   logsRoot: string;
   bundledShimPath: string;
-  bundledGameplayPatchPath: string;
   bundledVivoxProxyPath: string;
   bundledVivoxRuntimePath: string;
   /**
@@ -137,7 +136,7 @@ async function prepareClient(
     request.bundledVivoxProxyPath,
     request.bundledVivoxRuntimePath,
   );
-  await deployGameplayPatch(root, request.bundledGameplayPatchPath);
+  await removeRetiredGameplayPatch(root);
 
   const configPath = join(root, "ClientConfig.ini");
   const configBackupPath = join(root, "ClientConfig.original.ini");
@@ -267,18 +266,15 @@ export class GameLauncher {
     await mkdir(localLogs, { recursive: true });
     await mkdir(failureLogs, { recursive: true });
 
-    // Repair every mandatory native client patch before attestation. Without
-    // this preflight, the first launch after a launcher update would attest
-    // the previous artifacts and could be rejected before they can be upgraded.
+    // Repair the remaining mandatory native client patch and retire the exact
+    // 1.4.3 gameplay DLL before attestation. An unknown dinput8.dll is left
+    // untouched and blocks launch instead of being silently deleted or loaded.
     await deployVivoxCompatibility(
       installationRoot,
       request.bundledVivoxProxyPath,
       request.bundledVivoxRuntimePath,
     );
-    await deployGameplayPatch(
-      installationRoot,
-      request.bundledGameplayPatchPath,
-    );
+    await removeRetiredGameplayPatch(installationRoot);
 
     // Integrity attestation runs before the ticket exists: the whole point is
     // that a tampered installation never obtains one.

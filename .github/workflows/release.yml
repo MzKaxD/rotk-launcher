@@ -106,7 +106,7 @@ jobs:
           }
           # Les sidecars alimentent les overrides d'attestation embarqués :
           # une divergence signalerait chaque joueur honnête en écart.
-          foreach ($patch in @("dinput8.dll", "vivoxsdk_x64.dll", "vivoxsdk_x64_v5.dll")) {
+          foreach ($patch in @("vivoxsdk_x64.dll", "vivoxsdk_x64_v5.dll")) {
             $dllHash = (Get-FileHash -LiteralPath "resources\patches\$patch" -Algorithm SHA256).Hash.ToLowerInvariant()
             $sidecar = ((Get-Content -LiteralPath "resources\patches\$patch.sha256" -Raw) -split "\s+")[0]
             if ($sidecar -ne $dllHash) {
@@ -130,26 +130,11 @@ jobs:
             Get-ChildItem -LiteralPath release -File -Filter "ROTK-Launcher-*.exe"
             Get-Item -LiteralPath "release\win-unpacked\ROTK Launcher.exe"
             Get-Item -LiteralPath "release\win-unpacked\resources\patches\steam_api64.dll"
-            Get-Item -LiteralPath "release\win-unpacked\resources\patches\dinput8.dll"
             Get-Item -LiteralPath "release\win-unpacked\resources\patches\vivoxsdk_x64.dll"
             Get-Item -LiteralPath "release\win-unpacked\resources\patches\vivoxsdk_x64_v5.dll"
           )
-          if ($targets.Count -lt 6) {
+          if ($targets.Count -lt 5) {
             throw "The installer, packaged launcher or runtime compatibility DLL is missing."
-          }
-
-          $gameplayPatch = "release\win-unpacked\resources\patches\dinput8.dll"
-          $gameplaySidecar = "$gameplayPatch.sha256"
-          if (-not (Test-Path -LiteralPath $gameplaySidecar -PathType Leaf)) {
-            throw "The packaged gameplay patch SHA-256 sidecar is missing."
-          }
-          $gameplayHash = (Get-FileHash -LiteralPath $gameplayPatch -Algorithm SHA256).Hash.ToLowerInvariant()
-          $declaredGameplayHash = ((Get-Content -LiteralPath $gameplaySidecar -Raw) -split "\s+")[0]
-          if ($gameplayHash -cne "307603aaebdebf52fa55ad0a7337abd785e5190d1bf71e07520240fed51fbd7a") {
-            throw "Unexpected packaged dinput8.dll SHA-256: $gameplayHash"
-          }
-          if ($declaredGameplayHash -cne $gameplayHash) {
-            throw "Packaged dinput8.dll does not match its SHA-256 sidecar."
           }
 
           $vivoxRuntime = $targets |
@@ -185,12 +170,7 @@ jobs:
           }
 
           $publisher = $null
-          # dinput8.dll is intentionally kept byte-identical to its reproducible
-          # source build: signing it here would invalidate the SHA pinned by the
-          # launcher, sidecar and server attestation policy.
-          $projectTargets = $targets | Where-Object {
-            $_.Name -notin @("vivoxsdk_x64_v5.dll", "dinput8.dll")
-          }
+          $projectTargets = $targets | Where-Object { $_.Name -ne "vivoxsdk_x64_v5.dll" }
           foreach ($target in $projectTargets) {
             $signature = Get-AuthenticodeSignature -LiteralPath $target.FullName
             if ($signature.Status -ne "Valid" -or -not $signature.SignerCertificate) {
