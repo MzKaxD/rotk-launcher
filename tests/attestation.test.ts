@@ -6,6 +6,7 @@ import {
   challengeSigningInput,
   computeAttestationEvidence,
   computeManifestRoot,
+  isAttestationExcluded,
   isManifestPath,
   isSha256Hex,
   manifestPathKey,
@@ -140,12 +141,13 @@ const CANONICAL = {
     "clientconfig.ini",
     "clientconfig.original.ini",
     "inputprofile_user.xml",
+    "launchpad.exe",
     "steam_api64.original.dll",
     "steam_persona_name.txt",
     "useroptions.ini",
     "vivoxsdk_x64.original.dll",
   ],
-  excludedPrefixes: ["battleye/", "cache/", "crashes/", "logs/"],
+  excludedPrefixes: ["battleye/", "cache/", "crashes/", "launchpad.libs/", "logs/"],
   excludedSuffixes: [".dmp", ".log", ".original"],
 };
 
@@ -177,10 +179,15 @@ describe("canonical exclusion contract", () => {
   it("never excludes gameplay content or the shim", () => {
     for (const path of CANONICAL.excludedPaths) {
       expect(path).not.toMatch(/\.pack2$/);
-      expect(path).not.toMatch(/\.exe$/);
+      if (path.endsWith(".exe")) expect(path).toBe("launchpad.exe");
       if (path.endsWith(".dll")) expect(path).toMatch(/\.original\.dll$/);
     }
     expect(CANONICAL.excludedPaths).not.toContain("steam_api64.dll");
+    expect(isAttestationExcluded("LaunchPad.exe")).toBe(true);
+    expect(isAttestationExcluded("LaunchPad.libs/libcef.dll")).toBe(true);
+    expect(isAttestationExcluded("LaunchPad.bat")).toBe(false);
+    expect(isAttestationExcluded("H1Z1.exe")).toBe(false);
+    expect(isAttestationExcluded("Browser/Resources/libcef.dll")).toBe(false);
   });
 });
 
