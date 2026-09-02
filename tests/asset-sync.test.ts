@@ -133,6 +133,7 @@ describe("ROTK asset sync", () => {
       expect(() => parseAssetManifest(withEntry({ installPath: "ClientConfig.ini" }))).toThrow("fichier protégé");
       expect(() => parseAssetManifest(withEntry({ installPath: ".rotk-installation.json" }))).toThrow("fichier protégé");
       expect(() => parseAssetManifest(withEntry({ installPath: "BattlEye/config.cfg" }))).toThrow("chemin non autorisé");
+      expect(() => parseAssetManifest(withEntry({ installPath: "dinput8.dll" }))).toThrow("fichier protégé");
       expect(() => parseAssetManifest(withEntry({ installPath: "steam_api64.original.dll" }))).toThrow("chemin non autorisé");
     });
 

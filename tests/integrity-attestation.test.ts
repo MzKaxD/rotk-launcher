@@ -274,6 +274,14 @@ describe("challenge handling", () => {
     await expect(
       requestAttestationChallenge(PLAYER_KEY, ENDPOINT, LAUNCHER_VERSION, { fetchImpl: errorFetch("policy_unavailable") }),
     ).rejects.toThrow(/no published integrity policy/);
+    await expect(
+      requestAttestationChallenge(PLAYER_KEY, ENDPOINT, LAUNCHER_VERSION, {
+        fetchImpl: errorFetch("launcher_update_required"),
+      }),
+    ).rejects.toMatchObject({
+      code: "launcher_update_required",
+      message: expect.stringMatching(/too old.*Update the launcher/i),
+    });
   });
 
   it("marks an unpublished policy as not-applicable, not a failure to surface", async () => {
@@ -377,6 +385,7 @@ describe("expected-file merge", () => {
     for (const path of [
       "H1Z1.exe",
       "steam_api64.dll",
+      "dinput8.dll",
       "Resources/Assets/assets_x64_0.pack2",
       "Resources/Assets/ui_x64_4.pack2",
       "vivoxsdk_x64.dll",

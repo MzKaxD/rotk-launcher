@@ -43,6 +43,7 @@ import {
   APP_NAME,
   RECOMMENDED_INSTALL_PARENT_NAME,
   ROTK_INSTALL_DIRECTORY_NAME,
+  resolveBundledGameplayPatchPath,
   resolveBundledShimPath,
   resolveBundledVivoxProxyPath,
   resolveBundledVivoxRuntimePath,
@@ -325,6 +326,7 @@ async function attestInstallation(
     // --override flags — a missing entry here flags every honest install.
     const overrides = await readLauncherOverrides([
       { installPath: "steam_api64.dll", bundledPath: resolveBundledShimPath() },
+      { installPath: "dinput8.dll", bundledPath: resolveBundledGameplayPatchPath() },
       { installPath: "vivoxsdk_x64.dll", bundledPath: resolveBundledVivoxProxyPath() },
       { installPath: "vivoxsdk_x64_v5.dll", bundledPath: resolveBundledVivoxRuntimePath() },
     ]);
@@ -359,6 +361,11 @@ async function attestInstallation(
     };
   } catch (error) {
     attestationProgress = null;
+    // A minimum-version rejection is authoritative and must reach the Play
+    // handler so it can lock the button and surface the mandatory updater UI.
+    if ((error as { code?: string })?.code === "launcher_update_required") {
+      throw error;
+    }
     // No policy published / attestation unconfigured: it does not apply, and
     // the launch proceeds silently exactly as before enforcement existed.
     if (error instanceof AttestationUnavailableError && error.notApplicable) {
@@ -705,6 +712,7 @@ function registerIpc(): void {
           ? await adoptExistingClient({
               root: sourceRoot,
               shimPath: resolveBundledShimPath(),
+              gameplayPatchPath: resolveBundledGameplayPatchPath(),
               vivoxProxyPath: resolveBundledVivoxProxyPath(),
               vivoxRuntimePath: resolveBundledVivoxRuntimePath(),
               launcherVersion: app.getVersion(),
@@ -714,6 +722,7 @@ function registerIpc(): void {
               sourceRoot,
               destinationRoot: installationRoot,
               shimPath: resolveBundledShimPath(),
+              gameplayPatchPath: resolveBundledGameplayPatchPath(),
               vivoxProxyPath: resolveBundledVivoxProxyPath(),
               vivoxRuntimePath: resolveBundledVivoxRuntimePath(),
               launcherVersion: app.getVersion(),
@@ -791,6 +800,7 @@ function registerIpc(): void {
           runtime: launchRuntime,
           logsRoot: join(app.getPath("userData"), "logs"),
           bundledShimPath: resolveBundledShimPath(),
+          bundledGameplayPatchPath: resolveBundledGameplayPatchPath(),
           bundledVivoxProxyPath: resolveBundledVivoxProxyPath(),
           bundledVivoxRuntimePath: resolveBundledVivoxRuntimePath(),
           attest: () => attestInstallation(launchCredential.playerKey, launchRuntime),

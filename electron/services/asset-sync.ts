@@ -72,6 +72,7 @@ const RESERVED_DEVICE_NAMES = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 /** Root files the feed must never touch, lowercase, `/`-separated. */
 const RESERVED_TARGETS = new Set([
   ...CRITICAL_CLIENT_FILES.map((name) => name.toLocaleLowerCase("en-US")),
+  "dinput8.dll",
   INSTALL_MARKER_NAME.toLocaleLowerCase("en-US"),
 ]);
 /** The BattlEye folder is patched by the installer and stays feed-immutable. */
@@ -207,11 +208,11 @@ function validateInstallRelativePath(value: string, kind: "file" | "directory"):
   for (const segment of segments) validateInstallSegment(segment, context);
   const normalized = segments.join("/");
   if (kind === "file") {
-    if (hasBlockedExtension(segments.at(-1)!)) {
-      throw manifestError(`extension interdite (${context})`);
-    }
     if (RESERVED_TARGETS.has(normalized.toLocaleLowerCase("en-US"))) {
       throw manifestError(`fichier protégé (${context})`);
+    }
+    if (hasBlockedExtension(segments.at(-1)!)) {
+      throw manifestError(`extension interdite (${context})`);
     }
   }
   return normalized;

@@ -112,6 +112,9 @@ export const ATTESTATION_EXCLUDED_SUFFIXES: readonly string[] = [
  */
 export const ATTESTATION_OVERRIDE_PATHS: readonly string[] = [
   "steam_api64.dll",
+  // Dedicated gameplay patch; absent from the vanilla tree and loaded through
+  // the game's normal DirectInput import. It is never hidden from attestation.
+  "dinput8.dll",
   "vivoxsdk_x64.dll",
   // Added by the launcher (no vanilla counterpart): attested via an override
   // entry, which mergeExpectedFiles accepts for new paths too.

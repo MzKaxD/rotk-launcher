@@ -222,6 +222,13 @@ export async function requestAttestationChallenge(
           ? (rawError as Record<string, unknown>).code
           : null;
       if (code === "invalid_credentials") throw attestationError("The ROTK launcher key was rejected");
+      if (code === "launcher_update_required") {
+        const error = attestationError(
+          "This launcher version is too old to verify the game files. Update the launcher.",
+        );
+        (error as Error & { code?: string }).code = "launcher_update_required";
+        throw error;
+      }
       // No policy published, or attestation unconfigured on the server: the
       // self-hosted route answers failed-precondition, the legacy one
       // policy_unavailable. Neither is the player's problem — attestation
