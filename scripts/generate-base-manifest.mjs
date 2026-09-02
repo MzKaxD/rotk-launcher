@@ -40,6 +40,9 @@ const EXCLUDED_PATHS = new Set([
   // Per-player, rewritten by the game itself.
   "useroptions.ini",
   "inputprofile_user.xml",
+  // Daybreak updates this unused bootstrap independently. ROTK starts
+  // H1Z1.exe directly; the game executable remains attested.
+  "launchpad.exe",
   // Rewritten by the launcher before every launch.
   "clientconfig.ini",
   "battleye/beclient_x64.cfg",
@@ -51,7 +54,7 @@ const EXCLUDED_PATHS = new Set([
   "steam_api64.original.dll",
   "vivoxsdk_x64.original.dll",
 ]);
-const EXCLUDED_PREFIXES = ["logs/", "crashes/", "cache/", "battleye/"];
+const EXCLUDED_PREFIXES = ["logs/", "crashes/", "cache/", "battleye/", "launchpad.libs/"];
 const EXCLUDED_SUFFIXES = [".log", ".dmp", ".original"];
 
 function parseArgs(argv) {

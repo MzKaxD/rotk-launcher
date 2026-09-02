@@ -498,7 +498,11 @@ export class AssetSyncService {
         pending.push(asset);
         continue;
       }
-      if (await this.recordNeedsRepair(root, record, options.thorough ?? false)) pending.push(asset);
+      // Standalone files are cheap enough to hash on every launch and may be
+      // replaced by a same-size vanilla variant. ZIP-backed packs keep the
+      // fast size check unless the player explicitly runs Verify files.
+      const thorough = options.thorough === true || asset.type === "file";
+      if (await this.recordNeedsRepair(root, record, thorough)) pending.push(asset);
       else keptRecords.push(record);
     }
 

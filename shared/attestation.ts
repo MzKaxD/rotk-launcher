@@ -60,8 +60,10 @@ export const TRUSTED_ATTESTATION_KEYS: Readonly<Record<string, string>> = Object
  *      settings, keybinds), or is rewritten on every launch by the launcher; AND
  *   2. it cannot carry gameplay content or executable code.
  *
- * No `.pack2`, no `.exe`, and no `.dll` the game can load may ever be added
- * here (a `.original.dll` vanilla backup is the sole tolerated .dll shape):
+ * No `.pack2`, no game-loaded `.exe`, and no `.dll` the game can load may ever
+ * be added here (a `.original.dll` vanilla backup is the sole tolerated .dll
+ * shape). The one executable exception is Daybreak's unused, independently
+ * updated LaunchPad bootstrap; ROTK starts H1Z1.exe directly:
  * those are exactly what attestation exists to protect. `steam_api64.dll` and
  * `vivoxsdk_x64.dll` are NOT excluded — the launcher replaces them with its
  * own artifacts, so they are verified against those hashes instead (see
@@ -75,6 +77,9 @@ export const ATTESTATION_EXCLUDED_PATHS: ReadonlySet<string> = new Set([
   // Per-player, rewritten by the game itself.
   "useroptions.ini",
   "inputprofile_user.xml",
+  // Daybreak updates this unused bootstrap independently. ROTK launches
+  // H1Z1.exe directly; the game executable remains attested.
+  "launchpad.exe",
   // Rewritten by the launcher before every launch.
   "clientconfig.ini",
   "battleye/beclient_x64.cfg",
@@ -95,6 +100,9 @@ export const ATTESTATION_EXCLUDED_PREFIXES: readonly string[] = [
   // BattlEye updates its own client binaries out of band; attesting them would
   // reject players mid-update. Deliberate gap — BattlEye guards itself.
   "battleye/",
+  // CEF runtime owned by the unused Daybreak LaunchPad bootstrap. Keep the
+  // in-game Browser/Resources tree attested.
+  "launchpad.libs/",
 ];
 
 /** Filename suffixes never part of the shipped tree. */

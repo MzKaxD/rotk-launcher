@@ -306,7 +306,7 @@ describe("ROTK asset sync", () => {
     expect(calls).toEqual([FEED_URL]);
   });
 
-  it("verify() detects silent corruption and reinstalls the asset", async () => {
+  it("normal sync detects same-size drift in a standalone file asset", async () => {
     const { userData, root } = await setup();
     const payload = Buffer.from("pristine-content");
     const feed = manifest([assetEntry("check.dat", payload)]);
@@ -316,11 +316,45 @@ describe("ROTK asset sync", () => {
     });
 
     await sync.sync(root);
-    // Same size, different bytes: only a thorough re-hash can catch it.
+    // Same size, different bytes: standalone files are still hashed during the
+    // normal pre-launch sync so attestation never sees the stale copy.
     await writeFile(join(root, "check.dat"), "tampered-content");
-    expect(await sync.sync(root)).toEqual({ status: "up-to-date", packVersion: "1.0.0" });
-    expect(await sync.verify(root)).toEqual({ status: "updated", packVersion: "1.0.0" });
+    expect(await sync.sync(root)).toEqual({ status: "updated", packVersion: "1.0.0" });
     expect(await readFile(join(root, "check.dat"), "utf8")).toBe("pristine-content");
+  });
+
+  it("Verify files repairs both 1.5.0 weapon banks after same-size drift", async () => {
+    const { userData, root } = await setup();
+    const audioRoot = join(root, "Resources", "Audio", "pc9");
+    await mkdir(audioRoot, { recursive: true });
+
+    const weapons = Buffer.from("rotk-weapons-bank");
+    const weaponsSfx = Buffer.from("rotk-weapons-sfx-bank");
+    const feed = manifest([
+      assetEntry("weapons_bank_pc9", weapons, {
+        version: "1.5.0",
+        url: "https://github.com/h1z1rotk/assets/releases/download/assets-v1.5.0/Weapons.bnk_pc",
+        installPath: "Resources/Audio/pc9/Weapons.bnk_pc",
+      }),
+      assetEntry("weapons_sfx_bank_pc9", weaponsSfx, {
+        version: "1.5.0",
+        url: "https://github.com/h1z1rotk/assets/releases/download/assets-v1.5.0/Weapons_SFX.bnk_pc",
+        installPath: "Resources/Audio/pc9/Weapons_SFX.bnk_pc",
+      }),
+    ], "1.5.0");
+    const sync = service(userData, {
+      [FEED_URL]: () => new Response(JSON.stringify(feed)),
+      [feed.assets[0].url]: () => new Response(weapons),
+      [feed.assets[1].url]: () => new Response(weaponsSfx),
+    });
+
+    await sync.sync(root);
+    await writeFile(join(audioRoot, "Weapons.bnk_pc"), Buffer.alloc(weapons.length, 0x76));
+    await writeFile(join(audioRoot, "Weapons_SFX.bnk_pc"), Buffer.alloc(weaponsSfx.length, 0x73));
+
+    expect(await sync.verify(root)).toEqual({ status: "updated", packVersion: "1.5.0" });
+    expect(await readFile(join(audioRoot, "Weapons.bnk_pc"))).toEqual(weapons);
+    expect(await readFile(join(audioRoot, "Weapons_SFX.bnk_pc"))).toEqual(weaponsSfx);
   });
 
   it("never installs a download whose SHA-256 does not match the manifest", async () => {
