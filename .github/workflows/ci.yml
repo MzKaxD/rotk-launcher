@@ -63,15 +63,12 @@ jobs:
           $allowedVivoxDll = [System.IO.Path]::GetFullPath(
             (Join-Path $env:GITHUB_WORKSPACE "resources\patches\vivoxsdk_x64_v5.dll")
           )
-          $allowedGameplayDll = [System.IO.Path]::GetFullPath(
-            (Join-Path $env:GITHUB_WORKSPACE "resources\patches\dinput8.dll")
-          )
           $unexpectedDlls = Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Recurse -File -Filter "*.dll" |
-            Where-Object { @($allowedDll, $allowedVivoxDll, $allowedGameplayDll) -notcontains $_.FullName } |
+            Where-Object { @($allowedDll, $allowedVivoxDll) -notcontains $_.FullName } |
             Select-Object -ExpandProperty FullName
           if ($unexpectedDlls) {
             $unexpectedDlls | ForEach-Object { Write-Error "DLL inattendu dans le dépôt : $_" }
-            throw "Seuls les DLL open source reproductibles et le runtime Vivox officiel peuvent être versionnés."
+            throw "Seul le shim open source compilable peut être versionné."
           }
 
           $vivoxHash = (Get-FileHash -LiteralPath $allowedVivoxDll -Algorithm SHA256).Hash
@@ -211,8 +208,4 @@ jobs:
             dist-electron/
             native/steamshim/dist/steam_api64.dll
             native/steamshim/dist/steam_api64.dll.sha256
-            native/gameplaypatch/dist/dinput8.dll
-            native/gameplaypatch/dist/dinput8.dll.sha256
-            resources/patches/dinput8.dll
-            resources/patches/dinput8.dll.sha256
             resources/patches/vivoxsdk_x64.dll

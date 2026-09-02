@@ -43,7 +43,6 @@ import {
   APP_NAME,
   RECOMMENDED_INSTALL_PARENT_NAME,
   ROTK_INSTALL_DIRECTORY_NAME,
-  resolveBundledGameplayPatchPath,
   resolveBundledShimPath,
   resolveBundledVivoxProxyPath,
   resolveBundledVivoxRuntimePath,
@@ -326,7 +325,6 @@ async function attestInstallation(
     // --override flags — a missing entry here flags every honest install.
     const overrides = await readLauncherOverrides([
       { installPath: "steam_api64.dll", bundledPath: resolveBundledShimPath() },
-      { installPath: "dinput8.dll", bundledPath: resolveBundledGameplayPatchPath() },
       { installPath: "vivoxsdk_x64.dll", bundledPath: resolveBundledVivoxProxyPath() },
       { installPath: "vivoxsdk_x64_v5.dll", bundledPath: resolveBundledVivoxRuntimePath() },
     ]);
@@ -712,7 +710,6 @@ function registerIpc(): void {
           ? await adoptExistingClient({
               root: sourceRoot,
               shimPath: resolveBundledShimPath(),
-              gameplayPatchPath: resolveBundledGameplayPatchPath(),
               vivoxProxyPath: resolveBundledVivoxProxyPath(),
               vivoxRuntimePath: resolveBundledVivoxRuntimePath(),
               launcherVersion: app.getVersion(),
@@ -722,7 +719,6 @@ function registerIpc(): void {
               sourceRoot,
               destinationRoot: installationRoot,
               shimPath: resolveBundledShimPath(),
-              gameplayPatchPath: resolveBundledGameplayPatchPath(),
               vivoxProxyPath: resolveBundledVivoxProxyPath(),
               vivoxRuntimePath: resolveBundledVivoxRuntimePath(),
               launcherVersion: app.getVersion(),
@@ -800,7 +796,6 @@ function registerIpc(): void {
           runtime: launchRuntime,
           logsRoot: join(app.getPath("userData"), "logs"),
           bundledShimPath: resolveBundledShimPath(),
-          bundledGameplayPatchPath: resolveBundledGameplayPatchPath(),
           bundledVivoxProxyPath: resolveBundledVivoxProxyPath(),
           bundledVivoxRuntimePath: resolveBundledVivoxRuntimePath(),
           attest: () => attestInstallation(launchCredential.playerKey, launchRuntime),

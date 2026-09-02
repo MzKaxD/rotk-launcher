@@ -38,9 +38,3 @@ export function resolveBundledVivoxRuntimePath(): string {
     ? join(process.resourcesPath, "patches", "vivoxsdk_x64_v5.dll")
     : join(app.getAppPath(), "resources", "patches", "vivoxsdk_x64_v5.dll");
 }
-
-export function resolveBundledGameplayPatchPath(): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, "patches", "dinput8.dll")
-    : join(app.getAppPath(), "resources", "patches", "dinput8.dll");
-}

@@ -28,10 +28,16 @@ describe("launcher locales", () => {
     ).toBe("The mandatory ROTK crouch patch was not activated correctly.");
     expect(
       localizeServiceError(
-        "Le patch de gameplay ROTK obligatoire n'a pas été copié correctement.",
+        "Le patch gameplay retiré n’a pas pu être supprimé. Ferme H1Z1 puis réessaie.",
         "en",
       ),
-    ).toBe("The mandatory ROTK gameplay patch was not copied correctly.");
+    ).toBe("The retired gameplay patch could not be removed. Close H1Z1 and try again.");
+    expect(
+      localizeServiceError(
+        "Un dinput8.dll inconnu est présent dans le client ROTK. Supprime-le ou réimporte un client propre.",
+        "en",
+      ),
+    ).toBe("An unknown dinput8.dll is present in the ROTK client. Remove it or import a clean client again.");
   });
 
   it("localizes internal English errors for the French interface", () => {
