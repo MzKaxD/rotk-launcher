@@ -90,9 +90,45 @@ export function synchronizeClientConfig(
       key: "Url",
       value: `${runtime.gatewayOrigin}/h1z1xx/live/`,
     },
+    ...webEndpointDirectives(runtime),
   ];
   for (const directive of directives) synchronized = upsertIniDirective(synchronized, directive);
   return synchronized;
+}
+
+/**
+ * Where `[CrashReporter] Address` points instead of recap.daybreakgames.com:
+ * loopback is refused instantly and resolves without a DNS query, and nothing
+ * on the player's machine listens there. An empty value has unknown semantics
+ * in the stock client, so it is never used.
+ */
+export const CRASH_REPORTER_SINKHOLE_ADDRESS = "127.0.0.1:15081";
+
+/**
+ * Everything the client opens in a browser or uploads on its own. The stock
+ * INI names h1z1.com for the game-error page (the client appends the code and
+ * `&info=<detail>`, which for G9 carries the gateway ticket), custhelp.com for
+ * the help button (`%s` is the locale) and recap.daybreakgames.com for crash
+ * dumps. None of it may leave for Daybreak: the website serves the pages and
+ * loopback swallows the dumps. Shared by the INI and the launch arguments so
+ * the two can never disagree.
+ */
+export function webEndpointDirectives(runtime: RuntimeConfig): IniDirective[] {
+  return [
+    {
+      section: "WebResources",
+      key: "GameCrashUrl",
+      value: `${runtime.websiteOrigin}/game-error?code=G`,
+    },
+    { section: "Help", key: "PetitionUri", value: `${runtime.websiteOrigin}/support?locale=%s` },
+    { section: "CrashReporter", key: "Address", value: CRASH_REPORTER_SINKHOLE_ADDRESS },
+  ];
+}
+
+export function webEndpointLaunchArguments(runtime: RuntimeConfig): string[] {
+  return webEndpointDirectives(runtime).map(
+    (directive) => `${directive.section}:${directive.key}=${directive.value}`,
+  );
 }
 
 export function validateLocalCreateSessionUrl(value: string): string {

@@ -5,7 +5,11 @@ import { join } from "node:path";
 import type { InstalledClientConfig, LauncherConfig } from "./config-store.js";
 import type { RuntimeConfig } from "./runtime-config.js";
 import { serverList } from "./runtime-config.js";
-import { synchronizeClientConfig, validateLocalCreateSessionUrl } from "./client-config.js";
+import {
+  synchronizeClientConfig,
+  validateLocalCreateSessionUrl,
+  webEndpointLaunchArguments,
+} from "./client-config.js";
 import { validateInstallDestination } from "./path-policy.js";
 import type { PlayerIdentity } from "./player-identity.js";
 import { startLocalSessionGateway } from "./session-gateway.js";
@@ -178,6 +182,7 @@ function buildLaunchArguments(
     `CommandQueue:cb_uri=${runtime.gatewayOrigin}/`,
     `CommandQueue:eula_uri=${runtime.gatewayOrigin}/`,
     `LaunchTelemetry:Url=${runtime.gatewayOrigin}/h1z1xx/live/`,
+    ...webEndpointLaunchArguments(runtime),
     "Logging:ConsoleLogLevel=999",
     "Logging:FileLogLevel=999",
     "Logging:LocalLogLevel=999",
