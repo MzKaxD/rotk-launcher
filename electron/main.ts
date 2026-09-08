@@ -44,6 +44,7 @@ import {
   RECOMMENDED_INSTALL_PARENT_NAME,
   ROTK_INSTALL_DIRECTORY_NAME,
   resolveBundledShimPath,
+  resolveBundledFairPlayPath,
   resolveBundledVivoxProxyPath,
   resolveBundledVivoxRuntimePath,
 } from "./constants.js";
@@ -355,6 +356,10 @@ async function attestInstallation(
     const tpmProof = await collectTpmProof(challenge.challengeId).catch(() => null);
     return {
       status: "attested",
+      // The native process identity comes only from the signed base manifest;
+      // locally cached asset state must never override the executable hash.
+      expectedGameSha256: baseManifest.files
+        .find((file) => file.path.toLowerCase() === "h1z1.exe")?.sha256,
       block: buildAttestationResult(challenge, measurement, launcherVersion, tpmProof),
     };
   } catch (error) {
@@ -790,6 +795,18 @@ function registerIpc(): void {
         return { ok: false, error: assetResult.error };
       }
       try {
+        const consent = await dialog.showMessageBox({
+          type: "info", title: "FairPlay · ROTK",
+          message: currentLocale === "fr" ? "Protection FairPlay pendant votre partie" : "FairPlay protection during your game",
+          detail: currentLocale === "fr"
+            ? "FairPlay vérifie le processus du jeu, ses DLL et ses zones de mémoire exécutables. Il transmet des noms de fichiers, empreintes et anomalies aux administrateurs. Il s’arrête avec le jeu. Aucun document personnel, chemin de fichier, touche clavier ou écran du bureau n’est collecté. Si la protection s’arrête, le jeu est fermé. Les captures du jeu et la liste des processus sont facultatives et chaque demande nécessite votre accord."
+            : "FairPlay checks the game process, its DLLs and executable memory regions. It reports filenames, hashes and anomalies to administrators and stops with the game. It collects no personal documents, file paths, keystrokes or desktop captures. If protection stops, the game closes. Game screenshots and process lists are optional; each request asks for your approval.",
+          buttons: currentLocale === "fr" ? ["Accepter et jouer", "Annuler"] : ["Accept and play", "Cancel"],
+          defaultId: 1, cancelId: 1,
+          checkboxLabel: currentLocale === "fr" ? "Autoriser les demandes facultatives (confirmation à chaque demande)" : "Allow optional requests (ask me each time)",
+          checkboxChecked: false,
+        });
+        if (consent.response !== 0) { phase = "ready"; await broadcastSnapshot(); return { ok: false, cancelled: true, error: "FairPlay launch cancelled." }; }
         const pid = await gameLauncher.launch({
           config: await configStore.load(),
           identity: launchCredential,
@@ -798,6 +815,9 @@ function registerIpc(): void {
           bundledShimPath: resolveBundledShimPath(),
           bundledVivoxProxyPath: resolveBundledVivoxProxyPath(),
           bundledVivoxRuntimePath: resolveBundledVivoxRuntimePath(),
+          fairPlay: { executablePath: resolveBundledFairPlayPath(), consent: {
+            processInventory: consent.checkboxChecked, gameScreenshot: consent.checkboxChecked,
+          } },
           attest: () => attestInstallation(launchCredential.playerKey, launchRuntime),
           launcherVersion: app.getVersion(),
           // Best-effort hardware fingerprint; the server hashes it. A failure

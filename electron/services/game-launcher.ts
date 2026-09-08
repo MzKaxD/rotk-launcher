@@ -21,6 +21,8 @@ import {
 } from "./launch-ticket.js";
 import { removeRetiredGameplayPatch } from "./retired-gameplay-patch.js";
 import { deployVivoxCompatibility } from "./vivox-client.js";
+import { beginFairPlaySession, hashFairPlayFile, startFairPlay, verifyFairPlayBinary,
+  type FairPlayConsent, type FairPlayHandle } from "./fairplay.js";
 
 const GAME_STARTUP_STABILITY_MS = 3_000;
 
@@ -35,7 +37,7 @@ const GAME_STARTUP_STABILITY_MS = 3_000;
  *   the ticket route's opaque "update the launcher".
  */
 export type AttestationOutcome =
-  | { readonly status: "attested"; readonly block: unknown }
+  | { readonly status: "attested"; readonly block: unknown; readonly expectedGameSha256?: string }
   | { readonly status: "not-applicable" }
   | { readonly status: "unavailable"; readonly reason: string };
 
@@ -47,6 +49,7 @@ export interface LaunchRequest {
   bundledShimPath: string;
   bundledVivoxProxyPath: string;
   bundledVivoxRuntimePath: string;
+  fairPlay: { executablePath: string; consent: FairPlayConsent };
   /**
    * Integrity attestation hook. The launcher never self-exempts: it reports
    * what it observed and lets the backend decide what an absent attestation
@@ -283,7 +286,8 @@ export class GameLauncher {
 
     // Integrity attestation runs before the ticket exists: the whole point is
     // that a tampered installation never obtains one.
-    const outcome = request.attest
+    await verifyFairPlayBinary(request.fairPlay.executablePath);
+    let outcome = request.attest
       ? await request.attest()
       : { status: "not-applicable" } as const;
 
@@ -316,6 +320,7 @@ export class GameLauncher {
         const refreshed = request.attest
           ? await request.attest()
           : { status: "not-applicable" } as const;
+        outcome = refreshed;
         launchIdentity = await createLaunchTicket(
           request.identity.playerKey,
           request.runtime.launchTicketUrl,
@@ -340,6 +345,13 @@ export class GameLauncher {
       );
 
       const executable = join(installationRoot, "H1Z1.exe");
+      const expectedGameSha256 = outcome.status === "attested" ? outcome.expectedGameSha256 : undefined;
+      if (!expectedGameSha256 || await hashFairPlayFile(executable) !== expectedGameSha256) {
+        throw new Error("FairPlay requires a game executable verified against the signed ROTK manifest. Verify the installation and retry.");
+      }
+      const fairPlaySession = await beginFairPlaySession(request.runtime.websiteOrigin, launchIdentity.ticket, request.fairPlay.consent);
+      assertLaunchTicketFresh(launchIdentity);
+      let fairPlay: FairPlayHandle | null = null;
       const child = spawn(executable, args, {
         cwd: installationRoot,
         env: sanitizedEnvironment(launchIdentity),
@@ -354,6 +366,7 @@ export class GameLauncher {
       const finalize = (code: number | null): void => {
         if (finalized) return;
         finalized = true;
+        fairPlay?.stop();
         if (this.child === child) this.child = null;
         void sessionGateway.close().catch(() => undefined);
         request.onExit(code);
@@ -364,7 +377,19 @@ export class GameLauncher {
       // PreInitialize path. This was the visible failure mode of launcher
       // 1.4.0: H1Z1 exited with 0xc00000fd immediately after spawn, while the
       // renderer had already switched to the running state.
-      await waitForStableStartup(child);
+      try {
+        fairPlay = await startFairPlay({
+          executablePath: request.fairPlay.executablePath, apiBaseUrl: request.runtime.websiteOrigin,
+          bootstrap: fairPlaySession, gamePid: child.pid, expectedGameSha256,
+          consent: request.fairPlay.consent,
+          onUnexpectedExit: () => { if (child.exitCode === null) child.kill(); },
+        });
+        if (finalized) { fairPlay.stop(); throw new Error("The game exited before FairPlay was ready."); }
+        await waitForStableStartup(child);
+      } catch (error) {
+        fairPlay?.stop(); if (child.exitCode === null) child.kill();
+        throw error;
+      }
       child.unref();
       return child.pid;
     } catch (error) {
