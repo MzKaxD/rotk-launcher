@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({ spawn: vi.fn(), hash: "" }));
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 vi.mock("../electron/services/fairplay-release.js", () => ({ FAIRPLAY_VERSION: "0.2.0", get FAIRPLAY_SHA256() { return mocks.hash; } }));
 import { assertFairPlayReleasePolicy, beginFairPlaySession, fairPlayOrigin, measureFairPlayComponents,
-  parseFairPlayBootstrap, parseFairPlayHashes, startFairPlay, verifyFairPlayBinary, type FairPlayBootstrap } from "../electron/services/fairplay.js";
+  parseFairPlayBootstrap, parseFairPlayHashes, startFairPlay, verifyFairPlayBinary, withFairPlayAvailability, type FairPlayBootstrap } from "../electron/services/fairplay.js";
 
 const hashes = { gameSha256: "a".repeat(64), launcherSha256: "b".repeat(64), launcherAsarSha256: "c".repeat(64), agentSha256: "d".repeat(64) };
 const session: FairPlayBootstrap = { sessionId: "c89d3104-f74d-48ec-b8d0-598983f70da6", token: "A".repeat(43),
@@ -99,6 +99,40 @@ describe("FairPlay release and transport boundaries", () => {
   });
 });
 describe("FairPlay game supervision", () => {
+  it("keeps observation launches playable when the bootstrap service fails", async () => {
+    const unavailable = vi.fn();
+    const launch = () => beginFairPlaySession("https://rotk.app", "T".repeat(43), consent, hashes,
+      vi.fn().mockRejectedValue(new Error("offline")));
+    await expect(withFairPlayAvailability("observe", launch, unavailable)).resolves.toBeNull();
+    expect(unavailable).toHaveBeenCalledOnce();
+    await expect(withFairPlayAvailability("enforce", launch, unavailable)).rejects.toThrow("could not reach");
+  });
+  it("does not close an observation game when the agent crashes after readiness", async () => {
+    const executablePath = await artifact(); const child = fakeProcess("ready"); const onUnexpectedExit = vi.fn(), onUnavailable = vi.fn();
+    const observation = { ...session, integrityPolicy: { ...session.integrityPolicy, enforcement: "observe" as const } };
+    await startFairPlay({ executablePath, apiBaseUrl: "https://rotk.app", bootstrap: observation,
+      gamePid: 42, expectedGameSha256: "b".repeat(64), consent, onUnexpectedExit, onUnavailable });
+    child.stdout.write(JSON.stringify({ type: "coverage_gap", errorCode: "network_unavailable" }) + "\n");
+    child.exitCode = 7; child.emit("exit", 7);
+    expect(onUnexpectedExit).not.toHaveBeenCalled();
+    expect(onUnavailable).toHaveBeenCalledWith("service_unavailable");
+    expect(onUnavailable).toHaveBeenCalledWith("agent_exited");
+  });
+  it("keeps a game playable when its initially enforced session is downgraded", async () => {
+    const executablePath = await artifact(); const child = fakeProcess("ready"); const onUnexpectedExit = vi.fn();
+    await startFairPlay({ executablePath, apiBaseUrl: "https://rotk.app", bootstrap: session,
+      gamePid: 42, expectedGameSha256: "b".repeat(64), consent, onUnexpectedExit });
+    child.stdout.write('{"type":"policy","enforcement":"observe"}\n');
+    child.stdout.write('{"type":"policy","enforcement":"enforce"}\n');
+    child.exitCode = 7; child.emit("exit", 7); expect(onUnexpectedExit).not.toHaveBeenCalled();
+  });
+  it("allows observation startup to continue after the agent fails before readiness", async () => {
+    const executablePath = await artifact(); fakeProcess("crash"); const unavailable = vi.fn();
+    const observation = { ...session, integrityPolicy: { ...session.integrityPolicy, enforcement: "observe" as const } };
+    await expect(withFairPlayAvailability("observe", () => startFairPlay({ executablePath, apiBaseUrl: "https://rotk.app", bootstrap: observation,
+      gamePid: 42, expectedGameSha256: "b".repeat(64), consent, onUnexpectedExit: vi.fn() }), unavailable)).resolves.toBeNull();
+    expect(unavailable).toHaveBeenCalledOnce();
+  });
   it("sends scoped credentials through stdin, then stops only the supervised agent", async () => {
     const executablePath = await artifact(); const child = fakeProcess("ready"); const onUnexpectedExit = vi.fn();
     const handle = await startFairPlay({ executablePath, apiBaseUrl: "https://rotk.app", bootstrap: session,

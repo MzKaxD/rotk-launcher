@@ -1,4 +1,4 @@
-# FairPlay integration — protocol 2 / agent 0.2.0
+# FairPlay integration — protocol 2 / agent 0.2.2
 
 The packaged launcher streams SHA-256 over actual `H1Z1.exe`, its own process
 executable, physical `resources/app.asar`, and bundled
@@ -6,8 +6,8 @@ executable, physical `resources/app.asar`, and bundled
 physical archive. Development Electron sessions are explicitly unavailable:
 no placeholder hash stands in for a packaged component.
 
-The game must still match the signed base-game manifest; local asset state
-cannot override it. The agent must match its compiled digest. The launcher
+The account service decides whether integrity is observational or enforced.
+The agent must match its compiled digest before it can execute. The launcher
 EXE and ASAR digests are never embedded inside ASAR, which would create a
 circular hash. The approved complete tuple lives in the web service.
 
@@ -26,15 +26,28 @@ In enforce mode all four current hashes must match the selected release before
 game spawn. The server selects the active release or one complete previous
 release during bounded grace; components from different releases never mix.
 
-After game spawn, scoped token, policy, game PID, launcher PID and signed-base
-game hash reach native stdin only. The agent independently derives the real
-paths and measures the files before its first integrity heartbeat. Readiness
-must arrive within 20 seconds. Failed start or unexpected agent exit closes
-the game; game exit stops the agent. Launcher updates are refused while the
-game is launching/running; native file handles prevent ordinary component
-updates during the session.
+After game spawn, scoped token, policy, game PID, launcher PID and measured
+game hash reach native stdin only. The agent derives the real paths and
+measures files in a background worker. A missing measurement is not a mismatch.
+Workers drain their output pipe after child exit, including a write/exit racing
+with an empty pipe peek. Hashing is bounded to 45 seconds and repeats every two
+minutes, without blocking readiness or heartbeats.
 
-The game may authenticate before native readiness. The server's bounded
+The authenticated launch ticket explicitly advertises FairPlay's mode. In
+observation mode bootstrap outages, missing/corrupt agent files, failed native
+startup, agent crashes, missing checks and network interruptions never close
+the game. Unverified agent files are not executed. If collection cannot start,
+the game remains playable with unavailable coverage. Explicit enforcement
+retains admission requirements and supervision; unknown ticket modes default
+to enforcement for compatibility with older servers. A live downgrade to
+observation is honored by both the native agent and launcher.
+
+Game exit stops the agent. Launcher updates remain refused while the game is
+launching/running. The latest session's availability and numeric/hex game exit
+code are saved to one bounded local diagnostics file under the existing game
+logs directory, with no account IDs, tokens, paths or process inventory.
+
+In explicit enforcement the game may authenticate before native readiness. The server's bounded
 initial-integrity wait preserves the requirement for a matching first
 heartbeat, without a silent bootstrap exemption. Server gameplay checks and
 periodic loss-of-coverage enforcement remain independent.

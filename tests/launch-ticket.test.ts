@@ -32,6 +32,13 @@ function jsonResponse(payload: unknown, status = 200): Response {
 }
 
 describe("ROTK launch ticket client", () => {
+  it("uses observation only when explicitly returned by the account service", async () => {
+    for (const mode of ["observe", "enforce", undefined, "invalid"] as const) {
+      const fetchImpl = vi.fn(async () => jsonResponse({ ...validResponse, fairPlayEnforcement: mode })) as typeof fetch;
+      const identity = await createLaunchTicket(launcherKey, endpoint, { fetchImpl });
+      expect(identity.fairPlayEnforcement).toBe(mode === "observe" ? "observe" : "enforce");
+    }
+  });
   it("sends the durable key only in the HTTPS JSON body and validates the identity", async () => {
     const fetchImpl = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
       expect(input.toString()).toBe(endpoint);

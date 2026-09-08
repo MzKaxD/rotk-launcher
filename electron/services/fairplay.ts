@@ -26,6 +26,13 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 const rawFs: typeof nodeFs = process.versions.electron
   ? createRequire(import.meta.url)("original-fs") as typeof nodeFs : nodeFs;
 export interface FairPlayHandle { stop(): void }
+/** Observation failures are diagnostics; an explicit enforced policy still rejects them. */
+export async function withFairPlayAvailability<T>(
+  enforcement: "observe" | "enforce", operation: () => Promise<T>, onUnavailable: () => void,
+): Promise<T | null> {
+  try { return await operation(); }
+  catch (error) { if (enforcement === "enforce") throw error; onUnavailable(); return null; }
+}
 export function fairPlayOrigin(value: string): string {
   const url = new URL(value);
   if (!["https://rotk.app", "https://test.rotk.app"].includes(url.origin)
@@ -154,6 +161,7 @@ export async function startFairPlay(input: {
   executablePath: string; apiBaseUrl: string; bootstrap: FairPlayBootstrap;
   gamePid: number; expectedGameSha256: string; consent: FairPlayConsent;
   onUnexpectedExit(): void;
+  onUnavailable?(code: string): void;
 }): Promise<FairPlayHandle> {
   const apiBaseUrl = fairPlayOrigin(input.apiBaseUrl);
   const bootstrap = parseFairPlayBootstrap(input.bootstrap);
@@ -168,6 +176,11 @@ export async function startFairPlay(input: {
   });
   let stopped = false;
   let ready = false;
+  let enforcement = bootstrap.integrityPolicy.enforcement;
+  const unexpectedExit = (): void => {
+    input.onUnavailable?.("agent_exited");
+    if (enforcement === "enforce") input.onUnexpectedExit();
+  };
   const stop = (): void => { stopped = true; if (child.exitCode === null) child.kill(); };
   await new Promise<void>((resolve, reject) => {
     let pending = "";
@@ -182,18 +195,20 @@ export async function startFairPlay(input: {
     child.once("exit", () => {
       clearTimeout(timer);
       if (!settled) fail();
-      else if (ready && !stopped) input.onUnexpectedExit();
+      else if (ready && !stopped) unexpectedExit();
     });
     child.stdout?.setEncoding("utf8");
     child.stdout?.on("data", (chunk: string) => {
       pending += chunk;
-      if (pending.length > 16_384) { if (!ready) fail(); else { stop(); input.onUnexpectedExit(); } return; }
+      if (pending.length > 16_384) { if (!ready) fail(); else { stop(); unexpectedExit(); } return; }
       let end: number;
       while ((end = pending.indexOf("\n")) >= 0) {
         const line = pending.slice(0, end); pending = pending.slice(end + 1);
-        if (ready) continue;
         try {
           const message = JSON.parse(line);
+          if (message.type === "policy" && message.enforcement === "observe") enforcement = "observe";
+          if (message.type === "coverage_gap") input.onUnavailable?.("service_unavailable");
+          if (ready) continue;
           if (message.type === "ready" && message.pid === input.gamePid && message.version === FAIRPLAY_VERSION) {
             settled = true; ready = true; clearTimeout(timer); resolve();
           }
