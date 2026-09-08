@@ -27,8 +27,6 @@ import {
   type PlayerIdentitySummary,
 } from "../shared/contracts.js";
 import { isAppLocale, type AppLocale } from "../shared/locale.js";
-import { FAIRPLAY_TERMS_VERSION } from "../shared/fairplay-terms.js";
-import { FairPlayTermsStore } from "./services/fairplay-terms-store.js";
 import {
   DEFAULT_PLAYER_ROLE,
   DEFAULT_SERVER_ID,
@@ -46,7 +44,6 @@ import {
   RECOMMENDED_INSTALL_PARENT_NAME,
   ROTK_INSTALL_DIRECTORY_NAME,
   resolveBundledShimPath,
-  resolveBundledFairPlayPath,
   resolveBundledVivoxProxyPath,
   resolveBundledVivoxRuntimePath,
 } from "./constants.js";
@@ -116,7 +113,6 @@ const legacyUserDataDirectories = usesIsolatedDevelopmentData
 
 let mainWindow: BrowserWindow | null = null;
 let configStore: ConfigStore;
-let fairPlayTermsStore: FairPlayTermsStore;
 let playerKeyStore: PlayerKeyStore;
 let updateFeed: UpdateFeedService;
 let assetSync: AssetSyncService;
@@ -359,10 +355,6 @@ async function attestInstallation(
     const tpmProof = await collectTpmProof(challenge.challengeId).catch(() => null);
     return {
       status: "attested",
-      // The native process identity comes only from the signed base manifest;
-      // locally cached asset state must never override the executable hash.
-      expectedGameSha256: baseManifest.files
-        .find((file) => file.path.toLowerCase() === "h1z1.exe")?.sha256,
       block: buildAttestationResult(challenge, measurement, launcherVersion, tpmProof),
     };
   } catch (error) {
@@ -391,8 +383,6 @@ async function attestInstallation(
 async function snapshot(): Promise<LauncherSnapshot> {
   const configuredRoot = await installationRoot();
   const runtime = activeRuntime();
-  const key = activeKey();
-  const terms = key ? await fairPlayTermsStore.get(runtime.websiteOrigin, key) : null;
   return {
     appVersion: app.getVersion(),
     phase,
@@ -416,7 +406,6 @@ async function snapshot(): Promise<LauncherSnapshot> {
       })),
     },
     playerIdentity: identitySummary(),
-    fairPlayTerms: { version: FAIRPLAY_TERMS_VERSION, acceptedAt: terms?.acceptedAt ?? null },
     launcherUpdate: launcherUpdate.state,
     assetSync: assetSyncSummary(),
     integrityCheck: attestationProgress
@@ -774,7 +763,7 @@ function registerIpc(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.play,
-    trustedHandler(async (_event, acceptedTermsVersion: unknown): Promise<OperationResult<{ pid: number }>> => {
+    trustedHandler(async (): Promise<OperationResult<{ pid: number }>> => {
       if (phase !== "ready") return { ok: false, error: MAIN_COPY[currentLocale].clientNotReady };
       const selectedKey = activeKey();
       if (!selectedKey) {
@@ -791,19 +780,6 @@ function registerIpc(): void {
       const launchRuntime = activeRuntime();
       phase = "launching";
       lastErrorRaw = null;
-      // Consent is checked in the main process, before assets, authentication or
-      // game spawn. A new account or changed document must accept explicitly.
-      let terms;
-      try {
-        terms = acceptedTermsVersion === undefined
-          ? await fairPlayTermsStore.get(launchRuntime.websiteOrigin, selectedKey)
-          : await fairPlayTermsStore.accept(launchRuntime.websiteOrigin, selectedKey, acceptedTermsVersion);
-        if (!terms) throw new Error(currentLocale === "fr"
-          ? "Acceptez les conditions ROTK Anti-Cheat avant de jouer."
-          : "Accept the ROTK Anti-Cheat conditions before playing.");
-      } catch (error) {
-        phase = "ready"; await broadcastSnapshot(); return operationError(error);
-      }
       await broadcastSnapshot();
       // A discovered update must be fully downloaded and installed before
       // starting the game; launching with a partially updated asset set is unsafe.
@@ -822,9 +798,6 @@ function registerIpc(): void {
           bundledShimPath: resolveBundledShimPath(),
           bundledVivoxProxyPath: resolveBundledVivoxProxyPath(),
           bundledVivoxRuntimePath: resolveBundledVivoxRuntimePath(),
-          fairPlay: { executablePath: resolveBundledFairPlayPath(), packaged: app.isPackaged, consent: {
-            processInventory: true, gameScreenshot: true, terms,
-          } },
           attest: () => attestInstallation(launchCredential.playerKey, launchRuntime),
           launcherVersion: app.getVersion(),
           // Best-effort hardware fingerprint; the server hashes it. A failure
@@ -1011,7 +984,6 @@ function createWindow(): BrowserWindow {
 }
 
 async function initialize(): Promise<void> {
-  fairPlayTermsStore = new FairPlayTermsStore(app.getPath("userData"));
   configStore = new ConfigStore(
     app.getPath("userData"),
     legacyUserDataDirectories,

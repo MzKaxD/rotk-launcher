@@ -1,4 +1,4 @@
-import { CircleAlert, KeyRound, Play, RotateCcw, Settings2, ShieldCheck } from "lucide-react";
+import { CircleAlert, KeyRound, Play, RotateCcw, Settings2 } from "lucide-react";
 import type { LauncherSnapshot } from "../../shared/contracts";
 import type { PlayerRole, ServerId } from "../../shared/launch-profile";
 import { useI18n, type Copy } from "../i18n";
@@ -10,7 +10,6 @@ interface LauncherFooterProps {
   onPrimary(): void;
   onSetup(): void;
   onIdentity(): void;
-  onTerms(): void;
   onSelectLaunchProfile(serverId: ServerId, role: PlayerRole): void;
 }
 
@@ -69,7 +68,6 @@ export function LauncherFooter({
   onPrimary,
   onSetup,
   onIdentity,
-  onTerms,
   onSelectLaunchProfile,
 }: LauncherFooterProps) {
   const { copy } = useI18n();
@@ -105,7 +103,6 @@ export function LauncherFooter({
       />
 
       <div className="footer-tools">
-        <button type="button" onClick={onTerms} aria-label="ROTK Anti-Cheat" title="ROTK Anti-Cheat"><ShieldCheck size={19}/></button>
         <button type="button" onClick={onIdentity} disabled={installing} aria-label={copy.footer.playerIdentity} title={copy.footer.playerIdentity}>
           <KeyRound size={19} />
         </button>

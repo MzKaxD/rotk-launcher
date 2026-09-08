@@ -115,9 +115,6 @@ jobs:
           }
           npm run build
 
-      - name: Verify the signed game identity for the FairPlay release
-        run: node scripts/prepare-fairplay-game-release.mjs
-
       - name: Package NSIS installer
         run: npx electron-builder --win nsis --publish never --config.forceCodeSigning=${{ steps.signing.outputs.signed }}
         env:
@@ -132,12 +129,11 @@ jobs:
           $targets = @(
             Get-ChildItem -LiteralPath release -File -Filter "ROTK-Launcher-*.exe"
             Get-Item -LiteralPath "release\win-unpacked\ROTK Launcher.exe"
-            Get-Item -LiteralPath "release\win-unpacked\resources\fairplay\FairPlay.exe"
             Get-Item -LiteralPath "release\win-unpacked\resources\patches\steam_api64.dll"
             Get-Item -LiteralPath "release\win-unpacked\resources\patches\vivoxsdk_x64.dll"
             Get-Item -LiteralPath "release\win-unpacked\resources\patches\vivoxsdk_x64_v5.dll"
           )
-          if ($targets.Count -lt 6) {
+          if ($targets.Count -lt 5) {
             throw "The installer, packaged launcher or runtime compatibility DLL is missing."
           }
 
@@ -198,7 +194,7 @@ jobs:
         shell: pwsh
         run: |
           $artifacts = Get-ChildItem -LiteralPath release -File |
-            Where-Object { $_.Name -match '\.(exe|blockmap)$' -or $_.Name -eq 'FairPlay-release.json' } |
+            Where-Object { $_.Name -match '\.(exe|blockmap)$' } |
             Sort-Object Name
           if (-not $artifacts) { throw "No release artifact was generated." }
           $lines = foreach ($artifact in $artifacts) {
@@ -210,9 +206,7 @@ jobs:
       - name: Attest installer provenance
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-path: |
-            release/ROTK-Launcher-*.exe
-            release/FairPlay-release.json
+          subject-path: release/ROTK-Launcher-*.exe
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -225,7 +219,6 @@ jobs:
             release/ROTK-Launcher-*.exe.blockmap
             release/latest.yml
             release/SHA256SUMS.txt
-            release/FairPlay-release.json
 
       - name: Create a draft GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -241,7 +234,6 @@ jobs:
           $releaseFiles += (Resolve-Path -LiteralPath release\SHA256SUMS.txt).Path
           # latest.yml lets the in-app updater resolve the newest published version.
           $releaseFiles += (Resolve-Path -LiteralPath release\latest.yml).Path
-          $releaseFiles += (Resolve-Path -LiteralPath release\FairPlay-release.json).Path
           gh release create $env:GITHUB_REF_NAME @releaseFiles `
             --verify-tag `
             --generate-notes `

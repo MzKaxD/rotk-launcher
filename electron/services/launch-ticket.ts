@@ -21,8 +21,6 @@ export interface LaunchTicketIdentity {
   readonly gameAccountGuid: string;
   readonly steamId: string;
   readonly displayName: string;
-  /** Mode supplied by the authenticated account service, never renderer input. */
-  readonly fairPlayEnforcement?: "observe" | "enforce";
 }
 
 interface TicketRequestOptions {
@@ -163,7 +161,6 @@ function parseTicketResponse(
     gameAccountGuid,
     steamId: response.steamId as string,
     displayName,
-    fairPlayEnforcement: response.fairPlayEnforcement === "observe" ? "observe" : "enforce",
   });
   assertLaunchTicketFresh(identity, MINIMUM_TICKET_LIFETIME_MS, timing.receivedAtMonotonicMs);
   return identity;

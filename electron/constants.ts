@@ -21,12 +21,6 @@ export const ROTK_INSTALL_DIRECTORY_NAME = "ROTK";
 export const RECOMMENDED_INSTALL_PARENT_NAME = "Games";
 export const INSTALL_MARKER_NAME = ".rotk-installation.json";
 
-export function resolveBundledFairPlayPath(): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, "fairplay", "FairPlay.exe")
-    : join(app.getAppPath(), "resources", "fairplay", "FairPlay.exe");
-}
-
 export function resolveBundledShimPath(): string {
   return app.isPackaged
     ? join(process.resourcesPath, "patches", "steam_api64.dll")

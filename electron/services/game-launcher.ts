@@ -5,11 +5,7 @@ import { join } from "node:path";
 import type { InstalledClientConfig, LauncherConfig } from "./config-store.js";
 import type { RuntimeConfig } from "./runtime-config.js";
 import { serverList } from "./runtime-config.js";
-import {
-  synchronizeClientConfig,
-  validateLocalCreateSessionUrl,
-  webEndpointLaunchArguments,
-} from "./client-config.js";
+import { synchronizeClientConfig, validateLocalCreateSessionUrl } from "./client-config.js";
 import { validateInstallDestination } from "./path-policy.js";
 import type { PlayerIdentity } from "./player-identity.js";
 import { startLocalSessionGateway } from "./session-gateway.js";
@@ -21,8 +17,6 @@ import {
 } from "./launch-ticket.js";
 import { removeRetiredGameplayPatch } from "./retired-gameplay-patch.js";
 import { deployVivoxCompatibility } from "./vivox-client.js";
-import { beginFairPlaySession, measureFairPlayComponents, startFairPlay, withFairPlayAvailability,
-  type FairPlayConsent, type FairPlayHandle } from "./fairplay.js";
 
 const GAME_STARTUP_STABILITY_MS = 3_000;
 
@@ -37,7 +31,7 @@ const GAME_STARTUP_STABILITY_MS = 3_000;
  *   the ticket route's opaque "update the launcher".
  */
 export type AttestationOutcome =
-  | { readonly status: "attested"; readonly block: unknown; readonly expectedGameSha256?: string }
+  | { readonly status: "attested"; readonly block: unknown }
   | { readonly status: "not-applicable" }
   | { readonly status: "unavailable"; readonly reason: string };
 
@@ -49,7 +43,6 @@ export interface LaunchRequest {
   bundledShimPath: string;
   bundledVivoxProxyPath: string;
   bundledVivoxRuntimePath: string;
-  fairPlay: { executablePath: string; consent: FairPlayConsent; packaged: boolean };
   /**
    * Integrity attestation hook. The launcher never self-exempts: it reports
    * what it observed and lets the backend decide what an absent attestation
@@ -185,7 +178,6 @@ function buildLaunchArguments(
     `CommandQueue:cb_uri=${runtime.gatewayOrigin}/`,
     `CommandQueue:eula_uri=${runtime.gatewayOrigin}/`,
     `LaunchTelemetry:Url=${runtime.gatewayOrigin}/h1z1xx/live/`,
-    ...webEndpointLaunchArguments(runtime),
     "Logging:ConsoleLogLevel=999",
     "Logging:FileLogLevel=999",
     "Logging:LocalLogLevel=999",
@@ -273,17 +265,6 @@ export class GameLauncher {
     const failureLogs = join(request.logsRoot, installation.installId, "failure");
     await mkdir(localLogs, { recursive: true });
     await mkdir(failureLogs, { recursive: true });
-    // A bounded local record distinguishes a native game crash from an agent
-    // outage. It contains no account identity, credentials, paths or inventory.
-    const diagnostics: Record<string, unknown> = { schemaVersion: 1, launcherVersion: request.launcherVersion,
-      startedAt: new Date().toISOString(), fairPlay: "starting" };
-    let diagnosticWrite = Promise.resolve();
-    const recordDiagnostic = (change: Record<string, unknown>): void => {
-      Object.assign(diagnostics, change);
-      const bytes = JSON.stringify(diagnostics, null, 2) + "\n";
-      diagnosticWrite = diagnosticWrite.then(() => writeFile(join(localLogs, "last-session-diagnostics.json"), bytes)).catch(() => undefined);
-    };
-    recordDiagnostic({});
 
     // Repair the remaining mandatory native client patch and retire the exact
     // 1.4.3 gameplay DLL before attestation. An unknown dinput8.dll is left
@@ -297,7 +278,7 @@ export class GameLauncher {
 
     // Integrity attestation runs before the ticket exists: the whole point is
     // that a tampered installation never obtains one.
-    let outcome = request.attest
+    const outcome = request.attest
       ? await request.attest()
       : { status: "not-applicable" } as const;
 
@@ -330,7 +311,6 @@ export class GameLauncher {
         const refreshed = request.attest
           ? await request.attest()
           : { status: "not-applicable" } as const;
-        outcome = refreshed;
         launchIdentity = await createLaunchTicket(
           request.identity.playerKey,
           request.runtime.launchTicketUrl,
@@ -355,20 +335,6 @@ export class GameLauncher {
       );
 
       const executable = join(installationRoot, "H1Z1.exe");
-      const expectedGameSha256 = outcome.status === "attested" ? outcome.expectedGameSha256 : undefined;
-      const fairPlayMode = launchIdentity.fairPlayEnforcement ?? "enforce";
-      recordDiagnostic({ fairPlayMode });
-      const fairPlaySession = await withFairPlayAvailability(fairPlayMode, async () => {
-        const hashes = await measureFairPlayComponents({ packaged: request.fairPlay.packaged,
-          gameExecutable: executable, launcherExecutable: process.execPath, agentExecutable: request.fairPlay.executablePath });
-        if (fairPlayMode === "enforce" && (!expectedGameSha256 || hashes.gameSha256 !== expectedGameSha256)) {
-          throw new Error("ROTK Anti-Cheat requires a game executable verified against the signed ROTK manifest. Verify the installation and retry.");
-        }
-        const bootstrap = await beginFairPlaySession(request.runtime.websiteOrigin, launchIdentity.ticket, request.fairPlay.consent, hashes);
-        return { bootstrap, gameSha256: hashes.gameSha256 };
-      }, () => recordDiagnostic({ fairPlay: "bootstrap_unavailable" }));
-      assertLaunchTicketFresh(launchIdentity);
-      let fairPlay: FairPlayHandle | null = null;
       const child = spawn(executable, args, {
         cwd: installationRoot,
         env: sanitizedEnvironment(launchIdentity),
@@ -379,15 +345,10 @@ export class GameLauncher {
       });
       if (!child.pid) throw new Error("Windows n’a pas retourné l’identifiant du processus H1Z1.");
       this.child = child;
-      const gameStartedAt = performance.now();
       let finalized = false;
       const finalize = (code: number | null): void => {
         if (finalized) return;
         finalized = true;
-        recordDiagnostic({ exitedAt: new Date().toISOString(), gameExitCode: code,
-          gameExitCodeHex: code === null ? null : windowsExitCode(code),
-          gameLifetimeMs: Math.round(performance.now() - gameStartedAt) });
-        fairPlay?.stop();
         if (this.child === child) this.child = null;
         void sessionGateway.close().catch(() => undefined);
         request.onExit(code);
@@ -398,21 +359,7 @@ export class GameLauncher {
       // PreInitialize path. This was the visible failure mode of launcher
       // 1.4.0: H1Z1 exited with 0xc00000fd immediately after spawn, while the
       // renderer had already switched to the running state.
-      try {
-        if (fairPlaySession) fairPlay = await withFairPlayAvailability(fairPlayMode, () => startFairPlay({
-          executablePath: request.fairPlay.executablePath, apiBaseUrl: request.runtime.websiteOrigin,
-          bootstrap: fairPlaySession.bootstrap, gamePid: child.pid!, expectedGameSha256: fairPlaySession.gameSha256,
-          consent: request.fairPlay.consent,
-          onUnavailable: (code) => recordDiagnostic({ fairPlay: code }),
-          onUnexpectedExit: () => { recordDiagnostic({ fairPlay: "enforced_agent_exit" }); if (child.exitCode === null) child.kill(); },
-        }), () => recordDiagnostic({ fairPlay: "startup_unavailable" }));
-        if (fairPlay && diagnostics.fairPlay === "starting") recordDiagnostic({ fairPlay: "running" });
-        if (finalized) { fairPlay?.stop(); throw new Error("The game exited during startup."); }
-        await waitForStableStartup(child);
-      } catch (error) {
-        fairPlay?.stop(); if (child.exitCode === null) child.kill();
-        throw error;
-      }
+      await waitForStableStartup(child);
       child.unref();
       return child.pid;
     } catch (error) {
