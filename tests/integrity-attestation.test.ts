@@ -2,7 +2,8 @@ import { createHash, generateKeyPairSync, sign as signPayload } from "node:crypt
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as attestationFormat from "../shared/attestation";
 import { challengeSigningInput, computeAttestationEvidence, computeManifestRoot } from "../shared/attestation";
 import {
   buildAttestationResult,
@@ -451,6 +452,21 @@ describe("expected-file merge", () => {
 });
 
 describe("parseBaseManifest", () => {
+  it("rejects a changed game SHA even when the signed root and signature are untouched", () => {
+    const pair = keyPair();
+    const originalVerify = attestationFormat.verifyAttestationSignature;
+    const verify = vi.spyOn(attestationFormat, "verifyAttestationSignature").mockImplementation((payload, signature, keyId) =>
+      originalVerify(payload, signature, keyId, { qa: pair.publicKeyRaw }));
+    try {
+      const files = [{ path: "H1Z1.exe", size: 1, sha256: "a".repeat(64) }];
+      const manifest = { schemaVersion: 1 as const, kind: "base-game", buildId: "test", root: computeManifestRoot(files),
+        issuedAt: "2026-09-08T00:00:00.000Z", keyId: "qa", signature: "", files };
+      manifest.signature = signPayload(null, Buffer.from(attestationFormat.manifestSigningInput({ kind: "base-game", schemaVersion: 1,
+        version: manifest.buildId, root: manifest.root, issuedAt: manifest.issuedAt, expiresAt: null })), pair.privateKey).toString("base64url");
+      expect(parseBaseManifest(manifest).files[0].sha256).toBe("a".repeat(64));
+      expect(() => parseBaseManifest({ ...manifest, files: [{ ...files[0], sha256: "b".repeat(64) }] })).toThrow(/racine signée/);
+    } finally { verify.mockRestore(); }
+  });
   it("rejects an unsigned manifest", () => {
     expect(() => parseBaseManifest({
       schemaVersion: 1,

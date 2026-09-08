@@ -1,6 +1,6 @@
 {
   "name": "rotk-launcher",
-  "version": "1.4.5",
+  "version": "2.0.0",
   "description": "Open-source launcher for Return of the King",
   "author": "Return of the King contributors",
   "license": "GPL-3.0-or-later",
@@ -96,7 +96,12 @@
       {
         "from": "resources/fairplay",
         "to": "fairplay",
-        "filter": ["FairPlay.exe", "FairPlay.exe.sha256", "JSON-LICENSE.txt", "PRIVACY.fr.md"]
+        "filter": [
+          "FairPlay.exe",
+          "FairPlay.exe.sha256",
+          "JSON-LICENSE.txt",
+          "PRIVACY.fr.md"
+        ]
       },
       {
         "from": "resources/patches",

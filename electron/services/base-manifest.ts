@@ -11,6 +11,7 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { stripByteOrderMark } from "./asset-sync.js";
 import {
+  computeManifestRoot,
   isAttestationExcluded,
   isManifestPath,
   isSha256Hex,
@@ -93,6 +94,7 @@ export function parseBaseManifest(value: unknown): BaseManifest {
     manifest.keyId,
   );
   if (!signed) throw manifestError("signature non reconnue");
+  if (computeManifestRoot(files) !== manifest.root) throw manifestError("liste de fichiers différente de la racine signée");
 
   return {
     schemaVersion: 1,
