@@ -9,12 +9,12 @@ export const FAIRPLAY_TERMS: Record<AppLocale, {
 }> = {
   en: {
     title: "ROTK Anti-Cheat",
-    intro: "Read and accept these conditions before playing on ROTK servers.",
+    intro: "Conditions for playing on ROTK servers.",
     sections: [
-      { title: "Checks during your game", text: "ROTK Anti-Cheat checks the game, launcher and anti-cheat file hashes, loaded DLLs and executable-memory anomalies. Technical findings are sent to ROTK for manual review." },
-      { title: "Checks requested by administrators", text: "While the game is running, authorized senior administrators may request a screenshot of the foreground game window and a list of open executable names and process IDs. Your acceptance authorizes these requests without another approval pop-up. A game screenshot can include chat and overlays inside the game window." },
-      { title: "Collection stays limited", text: "No desktop or other windows, personal documents, file paths, command lines, keystrokes or memory contents are collected by ROTK Anti-Cheat. It stops collecting when you close the game. It does not run as a background service." },
-      { title: "Use and retention", text: "Evidence is used to investigate cheating. Administrator requests and access are logged. Requested screenshots and process lists are accessible for 24 hours; sessions and alerts for 14 days; access history for 30 days. Missing checks do not close the game in observation mode and findings do not automatically ban players." },
+      { title: "Fair play", text: "ROTK Anti-Cheat helps keep games fair. During your game, it checks ROTK file hashes, loaded DLLs and technical anomalies. Findings are reviewed by authorized administrators." },
+      { title: "Checks during a game", text: "Accepting allows senior administrators to request a screenshot of the foreground game window and the names and IDs of open processes, without another approval pop-up. Screenshots can include chat and overlays visible in the game." },
+      { title: "Your privacy", text: "ROTK Anti-Cheat does not collect your desktop, other windows, personal documents, file paths, command lines, keystrokes or memory contents. Collection stops when you close the game. Declining these conditions cancels the launch." },
+      { title: "Use of information", text: "Information is used to investigate cheating. Requested evidence is accessible for 24 hours; sessions and alerts for 14 days; administrator access logs for 30 days. In observation mode, unavailable checks do not close the game. Findings never automatically ban players." },
     ],
     agreement: "I accept these conditions, including administrator-requested game screenshots and process lists during my games.",
     accept: "Accept and play", cancel: "Cancel", close: "Close", privacy: "Full privacy policy",
@@ -22,12 +22,12 @@ export const FAIRPLAY_TERMS: Record<AppLocale, {
   },
   fr: {
     title: "ROTK Anti-Cheat",
-    intro: "Lisez et acceptez ces conditions avant de jouer sur les serveurs ROTK.",
+    intro: "Conditions de jeu sur les serveurs ROTK.",
     sections: [
-      { title: "Vérifications pendant la partie", text: "ROTK Anti-Cheat vérifie les empreintes du jeu, du launcher et de l’anti-cheat, les DLL chargées et les anomalies de mémoire exécutable. Les observations techniques sont transmises à ROTK pour une analyse humaine." },
-      { title: "Vérifications demandées par les administrateurs", text: "Pendant que le jeu est ouvert, les administrateurs habilités au plus haut niveau peuvent demander une capture de la fenêtre du jeu au premier plan et la liste des noms des exécutables ouverts avec leurs identifiants de processus. Votre acceptation autorise ces demandes sans nouvelle fenêtre de confirmation. Une capture peut inclure le chat et les overlays affichés dans le jeu." },
-      { title: "Une collecte limitée", text: "ROTK Anti-Cheat ne collecte ni bureau, ni autres fenêtres, ni documents personnels, chemins de fichiers, lignes de commande, frappes clavier ou contenu de la mémoire. La collecte s’arrête à la fermeture du jeu. Aucun service permanent ne tourne en arrière-plan." },
-      { title: "Utilisation et conservation", text: "Les éléments servent à enquêter sur la triche. Les demandes et accès des administrateurs sont journalisés. Les captures et listes demandées sont accessibles 24 heures ; les sessions et alertes, 14 jours ; l’historique des accès, 30 jours. En mode observation, une vérification manquante ne ferme pas le jeu et les signalements ne bannissent pas automatiquement les joueurs." },
+      { title: "Un jeu équitable", text: "ROTK Anti-Cheat contribue à garder des parties équitables. Pendant le jeu, il vérifie les empreintes des fichiers ROTK, les DLL chargées et les anomalies techniques. Les observations sont examinées par les administrateurs habilités." },
+      { title: "Les vérifications en partie", text: "Votre accord permet aux administrateurs au plus haut niveau de demander une capture de la fenêtre du jeu au premier plan et les noms et identifiants des processus ouverts, sans nouvelle confirmation. Le chat et les overlays visibles dans le jeu peuvent apparaître sur les captures." },
+      { title: "Votre vie privée", text: "ROTK Anti-Cheat ne collecte ni bureau, autres fenêtres, documents personnels, chemins de fichiers, lignes de commande, frappes clavier ou contenu mémoire. La collecte s’arrête à la fermeture du jeu. Refuser ces conditions annule le lancement." },
+      { title: "L’utilisation des informations", text: "Les informations servent à enquêter sur la triche. Les éléments demandés sont accessibles 24 heures ; les sessions et alertes, 14 jours ; les accès administrateur, 30 jours. En observation, une vérification indisponible ne ferme pas le jeu. Aucun signalement ne bannit automatiquement." },
     ],
     agreement: "J’accepte ces conditions, y compris les captures du jeu et listes de processus demandées par les administrateurs pendant mes parties.",
     accept: "Accepter et jouer", cancel: "Annuler", close: "Fermer", privacy: "Politique de confidentialité complète",
