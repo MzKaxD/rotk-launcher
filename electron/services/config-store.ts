@@ -22,6 +22,8 @@ export interface LauncherConfig {
   installation?: InstalledClientConfig;
   /** Custom asset synchronization before launch. Defaults to enabled. */
   assetSyncEnabled?: boolean;
+  /** Native diagnostic observer for the next launched game; defaults to enabled. */
+  diagnosticCaptureEnabled?: boolean;
   /**
    * Selected ROTK server. Absent means GAME 2: a launcher that never chose
    * must not silently connect to the test infrastructure. The single client
@@ -61,6 +63,7 @@ function isValidConfig(value: unknown): value is LauncherConfig {
     candidate.schemaVersion === 1 &&
     installationIsValid &&
     (candidate.assetSyncEnabled === undefined || typeof candidate.assetSyncEnabled === "boolean") &&
+    (candidate.diagnosticCaptureEnabled === undefined || typeof candidate.diagnosticCaptureEnabled === "boolean") &&
     (candidate.serverId === undefined || isServerId(candidate.serverId)) &&
     (candidate.role === undefined || isPlayerRole(candidate.role))
   );
@@ -70,6 +73,7 @@ function withoutLegacyIdentity(value: LauncherConfig): LauncherConfig {
   const next: LauncherConfig = { schemaVersion: 1 };
   if (value.installation) next.installation = value.installation;
   if (value.assetSyncEnabled !== undefined) next.assetSyncEnabled = value.assetSyncEnabled;
+  if (value.diagnosticCaptureEnabled !== undefined) next.diagnosticCaptureEnabled = value.diagnosticCaptureEnabled;
   if (value.serverId !== undefined) next.serverId = value.serverId;
   if (value.role !== undefined) next.role = value.role;
   return next;

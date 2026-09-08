@@ -1,4 +1,4 @@
-import { CircleAlert, KeyRound, Play, RotateCcw, Settings2 } from "lucide-react";
+import { CircleAlert, FileText, KeyRound, Play, RotateCcw, Settings2 } from "lucide-react";
 import type { LauncherSnapshot } from "../../shared/contracts";
 import type { PlayerRole, ServerId } from "../../shared/launch-profile";
 import { useI18n, type Copy } from "../i18n";
@@ -10,6 +10,7 @@ interface LauncherFooterProps {
   onPrimary(): void;
   onSetup(): void;
   onIdentity(): void;
+  onDiagnostics(): void;
   onSelectLaunchProfile(serverId: ServerId, role: PlayerRole): void;
 }
 
@@ -68,6 +69,7 @@ export function LauncherFooter({
   onPrimary,
   onSetup,
   onIdentity,
+  onDiagnostics,
   onSelectLaunchProfile,
 }: LauncherFooterProps) {
   const { copy } = useI18n();
@@ -108,6 +110,9 @@ export function LauncherFooter({
         </button>
         <button type="button" onClick={onSetup} disabled={installing} aria-label={copy.footer.settings} title={copy.footer.settings}>
           {snapshot.error ? <CircleAlert size={20} /> : snapshot.installationRoot ? <Settings2 size={20} /> : <RotateCcw size={20} />}
+        </button>
+        <button type="button" className="footer-tools__reports" onClick={onDiagnostics} aria-haspopup="dialog">
+          <FileText size={14} aria-hidden="true" /><span>{copy.diagnostics.reports}</span>
         </button>
       </div>
 

@@ -14,6 +14,8 @@ ROTK Launcher est distribué sous `GPL-3.0-or-later`, mais utilise des composant
 | Inter via Fontsource | SIL OFL 1.1 | <https://fontsource.org/fonts/inter> |
 | electron-builder | MIT | <https://www.electron.build/> |
 | Vitest | MIT | <https://vitest.dev/> |
+| yazl, export ZIP des diagnostics | MIT, Copyright (c) 2014 Josh Wolfe | <https://github.com/thejoshwolfe/yazl> |
+| buffer-crc32, contrôle CRC des archives ZIP | MIT, Copyright (c) 2013–2024 Brian J. Brennan | <https://github.com/brianloveswords/buffer-crc32> |
 | Zig, utilisé pour le build natif | MIT | <https://ziglang.org/> |
 | Vivox 5 client runtime | Proprietary Unity/Vivox runtime, published as a signed binary and included in official project installers | <https://unity.com/legal/licenses/unity-package-distribution-license> |
 

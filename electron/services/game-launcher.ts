@@ -53,7 +53,20 @@ export interface LaunchRequest {
   launcherVersion?: string;
   /** Raw hardware fingerprint; the server hashes it (see machine-identity.ts). */
   hwid?: Record<string, string>;
+  /** Best-effort telemetry only. Diagnostic failures never control the game lifecycle. */
+  diagnostics?: GameLaunchDiagnostics;
   onExit(exitCode: number | null): void;
+}
+
+export interface GameLaunchDiagnostics {
+  onIdentity(identity: { displayName: string; steamId: string }): void;
+  onSpawned(pid: number): void;
+  onOutput(stream: "stdout" | "stderr", text: string): void;
+  onExit(code: number | null, signal: NodeJS.Signals | null): Promise<void>;
+}
+
+function diagnosticCallback(callback: (() => void) | undefined): void {
+  try { callback?.(); } catch { /* Diagnostic collection must remain fail-open. */ }
 }
 
 /**
@@ -335,25 +348,40 @@ export class GameLauncher {
       );
 
       const executable = join(installationRoot, "H1Z1.exe");
+      diagnosticCallback(() => request.diagnostics?.onIdentity({ displayName: launchIdentity.displayName, steamId: launchIdentity.steamId }));
       const child = spawn(executable, args, {
         cwd: installationRoot,
         env: sanitizedEnvironment(launchIdentity),
         detached: true,
-        stdio: "ignore",
+        stdio: ["ignore", "pipe", "pipe"],
         windowsHide: false,
         shell: false,
       });
-      if (!child.pid) throw new Error("Windows n’a pas retourné l’identifiant du processus H1Z1.");
+      if (!child.pid) {
+        // A failed spawn emits 'error' on the next tick even though no process
+        // exists. The launch caller records the failure; absorb the event here.
+        child.once("error", () => undefined);
+        throw new Error("Windows n’a pas retourné l’identifiant du processus H1Z1.");
+      }
       this.child = child;
+      for (const stream of ["stdout", "stderr"] as const) {
+        child[stream]?.setEncoding("utf8");
+        child[stream]?.on("data", (text: string) => diagnosticCallback(() => request.diagnostics?.onOutput(stream, text)));
+        child[stream]?.on("error", () => undefined);
+      }
+      diagnosticCallback(() => request.diagnostics?.onSpawned(child.pid!));
       let finalized = false;
-      const finalize = (code: number | null): void => {
+      const finalize = (code: number | null, signal: NodeJS.Signals | null = null): void => {
         if (finalized) return;
         finalized = true;
         if (this.child === child) this.child = null;
         void sessionGateway.close().catch(() => undefined);
-        request.onExit(code);
+        // Preserve the local gateway/game lifecycle, but keep the launcher alive
+        // until the final report has been persisted when its window was closed.
+        const collected = Promise.resolve().then(() => request.diagnostics?.onExit(code, signal));
+        void collected.catch(() => undefined).finally(() => request.onExit(code));
       };
-      child.once("exit", (code) => finalize(code));
+      child.once("exit", (code, signal) => finalize(code, signal));
       child.once("error", () => finalize(null));
       // Do not report IN GAME for a native process that dies in its loader or
       // PreInitialize path. This was the visible failure mode of launcher

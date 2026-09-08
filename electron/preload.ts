@@ -6,6 +6,16 @@ import {
 } from "../shared/contracts.js";
 
 const api: RotkLauncherApi = {
+  getDiagnosticReports: () => ipcRenderer.invoke(IPC_CHANNELS.getDiagnosticReports),
+  captureDiagnostic: (request) => ipcRenderer.invoke(IPC_CHANNELS.captureDiagnostic, request),
+  exportDiagnostic: (request) => ipcRenderer.invoke(IPC_CHANNELS.exportDiagnostic, request),
+  openDiagnosticsFolder: () => ipcRenderer.invoke(IPC_CHANNELS.openDiagnosticsFolder),
+  setDiagnosticCaptureEnabled: (enabled) => ipcRenderer.invoke(IPC_CHANNELS.setDiagnosticCaptureEnabled, enabled),
+  onDiagnosticsChanged: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: import("../shared/diagnostics.js").DiagnosticState): void => listener(state);
+    ipcRenderer.on(IPC_CHANNELS.diagnosticsChanged, wrapped);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.diagnosticsChanged, wrapped);
+  },
   getSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getSnapshot),
   setLocale: (locale) => ipcRenderer.invoke(IPC_CHANNELS.setLocale, locale),
   setLaunchProfile: (serverId, role) => ipcRenderer.invoke(IPC_CHANNELS.setLaunchProfile, serverId, role),

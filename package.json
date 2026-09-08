@@ -1,6 +1,6 @@
 {
   "name": "rotk-launcher",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "description": "Open-source launcher for Return of the King",
   "author": "Return of the King contributors",
   "license": "GPL-3.0-or-later",
@@ -15,9 +15,9 @@
     "dev:isolated": "npm run build:electron && concurrently -k \"vite\" \"tsc -p electron/tsconfig.json --watch --preserveWatchOutput\" \"wait-on tcp:5173 dist-electron/electron/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 ROTK_USER_DATA_DIR=.dev-data electron .\"",
     "build:electron": "tsc -p electron/tsconfig.json && esbuild electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/electron/preload.cjs",
     "build:renderer": "vite build",
-    "build": "npm run typecheck && npm run test && npm run build:electron && npm run build:renderer",
+    "build": "npm run build:diagnostics && npm run typecheck && npm run test && npm run build:electron && npm run build:renderer",
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
-    "test": "npm run test:native:crouch && vitest run",
+    "test": "npm run test:native:crouch && npm run test:native:diagnostics && vitest run",
     "test:watch": "vitest",
     "predist": "npm run prepare:vivox",
     "predist:dir": "npm run prepare:vivox",
@@ -27,7 +27,9 @@
     "test:native:crouch": "powershell -NoProfile -ExecutionPolicy Bypass -File native/vivoxproxy/test-crouch-state-cache.ps1",
     "build:vivox": "npm run test:native:crouch && powershell -NoProfile -ExecutionPolicy Bypass -File native/vivoxproxy/build-v5-compat.ps1 -OutputPath resources/patches/vivoxsdk_x64.dll",
     "prepare:vivox": "npm run build:vivox && npm run verify:vivox-runtime",
-    "verify:vivox-runtime": "node scripts/verify-vivox-runtime.mjs"
+    "verify:vivox-runtime": "node scripts/verify-vivox-runtime.mjs",
+    "build:diagnostics": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-diagnostics.ps1",
+    "test:native:diagnostics": "node --test native/diagnostics/tests/integration.mjs"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.2.8",
@@ -36,12 +38,15 @@
     "framer-motion": "^12.42.2",
     "lucide-react": "^1.25.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "yazl": "^3.3.1"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@types/yauzl": "^3.4.0",
+    "@types/yazl": "^3.3.1",
     "@vitejs/plugin-react": "^6.0.3",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
@@ -51,7 +56,8 @@
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
     "vitest": "^4.1.10",
-    "wait-on": "^9.0.4"
+    "wait-on": "^9.0.4",
+    "yauzl": "^3.4.0"
   },
   "overrides": {
     "js-yaml": "4.3.1"
@@ -61,6 +67,7 @@
     "productName": "ROTK Launcher",
     "artifactName": "ROTK-Launcher-${version}-${arch}.${ext}",
     "asar": true,
+    "afterSign": "scripts/after-sign-diagnostics.cjs",
     "forceCodeSigning": false,
     "directories": {
       "output": "release"
@@ -87,6 +94,14 @@
         "filter": [
           "**/*.dll",
           "**/*.sha256"
+        ]
+      },
+      {
+        "from": "resources/diagnostics",
+        "to": "diagnostics",
+        "filter": [
+          "ROTK.Diagnostics.exe",
+          "ROTK.Diagnostics.exe.sha256"
         ]
       }
     ],

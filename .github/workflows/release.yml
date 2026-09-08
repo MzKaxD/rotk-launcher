@@ -99,6 +99,13 @@ jobs:
 
       - name: Test and build
         run: |
+          $helperBundledHash = (Get-FileHash -LiteralPath "resources\diagnostics\ROTK.Diagnostics.exe" -Algorithm SHA256).Hash
+          npm run build:diagnostics
+          if ($LASTEXITCODE -ne 0) { throw "Diagnostic helper build failed." }
+          $helperRebuiltHash = (Get-FileHash -LiteralPath "resources\diagnostics\ROTK.Diagnostics.exe" -Algorithm SHA256).Hash
+          if ($helperBundledHash -ne $helperRebuiltHash) {
+            throw "Bundled diagnostic helper does not match its public source."
+          }
           npm run build:vivox
           $proxyHash = (Get-FileHash -LiteralPath "resources\patches\vivoxsdk_x64.dll" -Algorithm SHA256).Hash
           if ($proxyHash -ne "B364DA8637E425AACEB078071B034A7D91DFE7418B653355DF8E7B579118ED83") {
@@ -132,10 +139,14 @@ jobs:
             Get-Item -LiteralPath "release\win-unpacked\resources\patches\steam_api64.dll"
             Get-Item -LiteralPath "release\win-unpacked\resources\patches\vivoxsdk_x64.dll"
             Get-Item -LiteralPath "release\win-unpacked\resources\patches\vivoxsdk_x64_v5.dll"
+            Get-Item -LiteralPath "release\win-unpacked\resources\diagnostics\ROTK.Diagnostics.exe"
           )
-          if ($targets.Count -lt 5) {
-            throw "The installer, packaged launcher or runtime compatibility DLL is missing."
+          if ($targets.Count -lt 6) {
+            throw "The installer, packaged launcher, runtime compatibility DLL or diagnostic helper is missing."
           }
+          $helperPackagedHash = (Get-FileHash -LiteralPath "release\win-unpacked\resources\diagnostics\ROTK.Diagnostics.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $helperPackagedSidecar = ((Get-Content -LiteralPath "release\win-unpacked\resources\diagnostics\ROTK.Diagnostics.exe.sha256" -Raw) -split "\s+")[0]
+          if ($helperPackagedSidecar -ne $helperPackagedHash) { throw "Packaged diagnostic helper sidecar mismatch (including Authenticode bytes)." }
 
           $vivoxRuntime = $targets |
             Where-Object { $_.Name -eq "vivoxsdk_x64_v5.dll" } |

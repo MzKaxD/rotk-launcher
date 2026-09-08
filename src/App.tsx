@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { LauncherSnapshot, OperationResult } from "../shared/contracts";
 import { GlobalActivityCenter } from "./components/GlobalActivityCenter";
+import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
 import { InstallPanel } from "./components/InstallPanel";
 import { LauncherFooter } from "./components/LauncherFooter";
 import { NewsCarousel } from "./components/NewsCarousel";
@@ -14,6 +15,7 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<LauncherSnapshot | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [identityOpen, setIdentityOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [transientError, setTransientError] = useState<string | null>(null);
   const [detectAttempted, setDetectAttempted] = useState(false);
@@ -119,8 +121,25 @@ export default function App() {
           setSetupOpen(false);
           setIdentityOpen(true);
         }}
+        onDiagnostics={() => {
+          setSetupOpen(false);
+          setIdentityOpen(false);
+          setDiagnosticsOpen(true);
+        }}
         onSelectLaunchProfile={(serverId, role) =>
           void perform(() => window.rotk.setLaunchProfile(serverId, role))}
+      />
+      <DiagnosticsPanel
+        open={diagnosticsOpen}
+        gameRunning={snapshot.phase === "running"}
+        gameLaunching={snapshot.phase === "launching"}
+        notificationHidden={setupOpen || identityOpen}
+        onOpen={() => {
+          setSetupOpen(false);
+          setIdentityOpen(false);
+          setDiagnosticsOpen(true);
+        }}
+        onClose={() => setDiagnosticsOpen(false)}
       />
       <PlayerIdentityPanel
         snapshot={snapshot}

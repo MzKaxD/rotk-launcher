@@ -8,10 +8,12 @@ import {
 } from "react";
 import { isAppLocale, type AppLocale } from "../shared/locale";
 import type { PlayerRole } from "../shared/launch-profile";
+import { DIAGNOSTICS_COPY, type DiagnosticsCopy } from "./diagnostics-copy";
 
 const STORAGE_KEY = "rotk.launcher.locale";
 
 export interface Copy {
+  diagnostics: DiagnosticsCopy;
   language: {
     label: string;
     change: (current: string) => string;
@@ -174,6 +176,7 @@ export interface Copy {
 
 const COPY: Record<AppLocale, Copy> = {
   en: {
+    diagnostics: DIAGNOSTICS_COPY.en,
     language: {
       label: "Language",
       change: (current) => `Change language. Current language: ${current}`,
@@ -366,6 +369,7 @@ const COPY: Record<AppLocale, Copy> = {
     },
   },
   fr: {
+    diagnostics: DIAGNOSTICS_COPY.fr,
     language: {
       label: "Langue",
       change: (current) => `Changer de langue. Langue actuelle : ${current}`,

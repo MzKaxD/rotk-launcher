@@ -161,6 +161,12 @@ export interface OperationResult<T = undefined> {
 }
 
 export interface RotkLauncherApi {
+  getDiagnosticReports(): Promise<OperationResult<import("./diagnostics.js").DiagnosticState>>;
+  captureDiagnostic(request: import("./diagnostics.js").DiagnosticCaptureRequest): Promise<OperationResult<import("./diagnostics.js").DiagnosticReportSummary>>;
+  exportDiagnostic(request: import("./diagnostics.js").DiagnosticExportRequest): Promise<OperationResult<{ fileName: string }>>;
+  openDiagnosticsFolder(): Promise<OperationResult>;
+  setDiagnosticCaptureEnabled(enabled: boolean): Promise<OperationResult<import("./diagnostics.js").DiagnosticState>>;
+  onDiagnosticsChanged(listener: (state: import("./diagnostics.js").DiagnosticState) => void): () => void;
   getSnapshot(): Promise<LauncherSnapshot>;
   setLocale(locale: AppLocale): Promise<void>;
   /** Selects the server and the role a launch runs under, in one operation. */
@@ -188,6 +194,12 @@ export interface RotkLauncherApi {
 }
 
 export const IPC_CHANNELS = {
+  getDiagnosticReports: "diagnostics:list",
+  captureDiagnostic: "diagnostics:capture",
+  exportDiagnostic: "diagnostics:export",
+  openDiagnosticsFolder: "diagnostics:open-folder",
+  setDiagnosticCaptureEnabled: "diagnostics:set-capture-enabled",
+  diagnosticsChanged: "diagnostics:changed",
   getSnapshot: "launcher:get-snapshot",
   setLocale: "launcher:set-locale",
   setLaunchProfile: "launcher:set-launch-profile",
