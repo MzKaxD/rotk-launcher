@@ -7,6 +7,7 @@ import {
 
 const api: RotkLauncherApi = {
   getDiagnosticReports: () => ipcRenderer.invoke(IPC_CHANNELS.getDiagnosticReports),
+  reportCrash: () => ipcRenderer.invoke(IPC_CHANNELS.reportCrash),
   captureDiagnostic: (request) => ipcRenderer.invoke(IPC_CHANNELS.captureDiagnostic, request),
   exportDiagnostic: (request) => ipcRenderer.invoke(IPC_CHANNELS.exportDiagnostic, request),
   openDiagnosticsFolder: () => ipcRenderer.invoke(IPC_CHANNELS.openDiagnosticsFolder),

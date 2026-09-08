@@ -468,10 +468,12 @@ export class DiagnosticReportService {
       `UTC offset at launch (minutes): ${record.timezoneOffsetMinutes}`, `Launcher: ${record.summary.launcherVersion}`,
       `Server: ${record.summary.serverLabel}`, `Player: ${record.summary.playerName ?? 'unavailable'}`,
       `Classification: ${record.summary.kind}`, `Exit: ${record.exit?.hex ?? 'unavailable'} ${record.exit?.name ?? ''}`,
+      `Player-declared incident: ${record.context.playerReportedCrash === true ? 'yes' : 'no'}${record.context.playerReportedAt ? ` (${record.context.playerReportedAt})` : ''}`,
       'A transport stall or unavailable exit code does not establish a native crash.',
       'Text logs are bounded and sanitized. Command lines, environment and credential files are excluded.',
       'Binary memory dumps cannot be sanitized and may contain credentials, private messages or other process memory.',
-      'Memory dumps are included only when explicitly selected for this export. Share them only with a trusted administrator.',
+      'The crash-report button includes available memory dumps. Developer exports may omit them; consult manifest.json.',
+      'Reports stay local until the player shares the ZIP. Share memory dumps only with a trusted administrator.',
       'Read manifest.json for included files, SHA-256 hashes, limits, omissions and collection issues.', '',
     ].join('\n'), this.secrets());
   }

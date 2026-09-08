@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { LauncherSnapshot, OperationResult } from "../shared/contracts";
 import { GlobalActivityCenter } from "./components/GlobalActivityCenter";
-import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
+import { CrashReportFeedback, useCrashReport } from "./components/CrashReportFeedback";
 import { InstallPanel } from "./components/InstallPanel";
 import { LauncherFooter } from "./components/LauncherFooter";
 import { NewsCarousel } from "./components/NewsCarousel";
@@ -15,10 +15,11 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<LauncherSnapshot | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [identityOpen, setIdentityOpen] = useState(false);
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const crashReport = useCrashReport();
   const [busy, setBusy] = useState(false);
   const [transientError, setTransientError] = useState<string | null>(null);
   const [detectAttempted, setDetectAttempted] = useState(false);
+  const working = busy || crashReport.busy;
 
   useEffect(() => {
     setTransientError(null);
@@ -105,13 +106,13 @@ export default function App() {
       )}
       <UpdateBanner
         snapshot={snapshot}
-        busy={busy}
+        busy={working}
         onDownload={() => void perform(() => window.rotk.downloadLauncherUpdate())}
         onInstall={() => void perform(() => window.rotk.installLauncherUpdate())}
       />
       <LauncherFooter
         snapshot={snapshot}
-        busy={busy}
+        busy={working}
         onPrimary={onPrimary}
         onSetup={() => {
           setIdentityOpen(false);
@@ -121,26 +122,13 @@ export default function App() {
           setSetupOpen(false);
           setIdentityOpen(true);
         }}
-        onDiagnostics={() => {
-          setSetupOpen(false);
-          setIdentityOpen(false);
-          setDiagnosticsOpen(true);
-        }}
+        reportBusy={crashReport.busy}
+        crashButtonRef={crashReport.buttonRef}
+        onReportCrash={() => void crashReport.reportCrash()}
         onSelectLaunchProfile={(serverId, role) =>
           void perform(() => window.rotk.setLaunchProfile(serverId, role))}
       />
-      <DiagnosticsPanel
-        open={diagnosticsOpen}
-        gameRunning={snapshot.phase === "running"}
-        gameLaunching={snapshot.phase === "launching"}
-        notificationHidden={setupOpen || identityOpen}
-        onOpen={() => {
-          setSetupOpen(false);
-          setIdentityOpen(false);
-          setDiagnosticsOpen(true);
-        }}
-        onClose={() => setDiagnosticsOpen(false)}
-      />
+      <CrashReportFeedback feedback={crashReport.feedback} onDismiss={crashReport.dismiss} onRetry={crashReport.retry} />
       <PlayerIdentityPanel
         snapshot={snapshot}
         open={identityOpen}
@@ -149,7 +137,7 @@ export default function App() {
       <InstallPanel
         snapshot={snapshot}
         open={setupOpen}
-        busy={busy}
+        busy={working}
         onClose={() => setSetupOpen(false)}
         onSelectSource={() => void selectSource()}
         onSelectDestination={() => void selectDestination()}

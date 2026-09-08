@@ -162,6 +162,7 @@ export interface OperationResult<T = undefined> {
 
 export interface RotkLauncherApi {
   getDiagnosticReports(): Promise<OperationResult<import("./diagnostics.js").DiagnosticState>>;
+  reportCrash(): Promise<OperationResult<{ fileName: string }>>;
   captureDiagnostic(request: import("./diagnostics.js").DiagnosticCaptureRequest): Promise<OperationResult<import("./diagnostics.js").DiagnosticReportSummary>>;
   exportDiagnostic(request: import("./diagnostics.js").DiagnosticExportRequest): Promise<OperationResult<{ fileName: string }>>;
   openDiagnosticsFolder(): Promise<OperationResult>;
@@ -195,6 +196,7 @@ export interface RotkLauncherApi {
 
 export const IPC_CHANNELS = {
   getDiagnosticReports: "diagnostics:list",
+  reportCrash: "diagnostics:report-crash",
   captureDiagnostic: "diagnostics:capture",
   exportDiagnostic: "diagnostics:export",
   openDiagnosticsFolder: "diagnostics:open-folder",

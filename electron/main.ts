@@ -144,6 +144,7 @@ let selectedServerId: ServerId = DEFAULT_SERVER_ID;
 let selectedRole: PlayerRole = DEFAULT_PLAYER_ROLE;
 let serverStatus: Partial<Record<ServerId, ServerStatus>> = {};
 let quitWhenGameExits = false;
+let crashReportRequests = 0;
 let assetSyncEnabled = true;
 let assetSyncRunning = false;
 let assetSyncStatus: AssetSyncStatus = "idle";
@@ -181,6 +182,10 @@ async function diagnosticContext(runtime = activeRuntime()): Promise<DiagnosticS
 
 function validDiagnosticDescription(value: unknown): value is string {
   return typeof value === "string" && value.length <= 4000;
+}
+
+function diagnosticWorkInProgress(): boolean {
+  return crashReportRequests > 0 || Boolean(diagnostics?.isBusy());
 }
 
 function rawErrorMessage(error: unknown): string {
@@ -536,6 +541,20 @@ function operationError<T = undefined>(error: unknown): OperationResult<T> {
 }
 
 function registerIpc(): void {
+  ipcMain.handle(IPC_CHANNELS.reportCrash, trustedHandler(async (): Promise<OperationResult<{ fileName: string }>> => {
+    // Keep the app alive from the click, including the async config read that
+    // happens before the controller acquires its own operation lock.
+    crashReportRequests++;
+    try {
+      const exported = await diagnostics.reportCrash(join(app.getPath("downloads"), "ROTK-Rapports"), await diagnosticContext());
+      shell.showItemInFolder(exported.path);
+      return { ok: true, value: { fileName: exported.fileName } };
+    } catch { return { ok: false, error: diagnosticCopy().failed }; }
+    finally {
+      crashReportRequests--;
+      if (quitWhenGameExits && !mainWindow && !gameLauncher.isRunning() && phase !== "launching" && phase !== "running" && !diagnosticWorkInProgress()) app.quit();
+    }
+  }));
   ipcMain.handle(IPC_CHANNELS.getDiagnosticReports, trustedHandler(async (): Promise<OperationResult<DiagnosticState>> => {
     try { return { ok: true, value: await diagnostics.state() }; }
     catch { return { ok: false, error: diagnosticCopy().failed }; }
@@ -898,7 +917,7 @@ function registerIpc(): void {
             gamePid = null;
             phase = "ready";
             void broadcastSnapshot();
-            if (quitWhenGameExits && !mainWindow) app.quit();
+            if (quitWhenGameExits && !mainWindow && !diagnosticWorkInProgress()) app.quit();
           },
         });
         gamePid = pid;
@@ -919,7 +938,7 @@ function registerIpc(): void {
         }
         phase = "ready";
         await broadcastSnapshot();
-        if (quitWhenGameExits && !mainWindow) app.quit();
+        if (quitWhenGameExits && !mainWindow && !diagnosticWorkInProgress()) app.quit();
         return result;
       }
     }),
@@ -1170,7 +1189,7 @@ void app
   });
 
 app.on("window-all-closed", () => {
-  if (gameLauncher.isRunning() || phase === "launching" || phase === "running") {
+  if (gameLauncher.isRunning() || phase === "launching" || phase === "running" || diagnosticWorkInProgress()) {
     quitWhenGameExits = true;
     return;
   }

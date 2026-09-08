@@ -1,6 +1,6 @@
 import { createReadStream } from "node:fs";
-import { createHash } from "node:crypto";
-import { lstat } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { lstat, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { DiagnosticCaptureRequest, DiagnosticState } from "../../shared/diagnostics.js";
 import type { GameLaunchDiagnostics } from "./game-launcher.js";
@@ -52,6 +52,7 @@ export class DiagnosticController {
   }
 
   async initialize(enabled: boolean): Promise<void> { this.enabled = enabled; await this.reports.initialize(); }
+  isBusy(): boolean { return this.busy; }
   async state(): Promise<DiagnosticState> {
     return { reports: await this.reports.listReports(), recordingId: this.active?.id ?? null, busy: this.busy,
       advancedCaptureEnabled: this.enabled, error: this.error };
@@ -162,52 +163,94 @@ export class DiagnosticController {
   async capture(request: DiagnosticCaptureRequest, context: DiagnosticSessionContext): Promise<import("../../shared/diagnostics.js").DiagnosticReportSummary> {
     if (this.busy) throw new Error("A diagnostic operation is already running");
     this.busy = true; this.error = null; this.changed();
-    try {
-      const active = this.active;
-      if (active) {
-        if (active.finalizing) await active.finalizing;
-        else {
-          await this.reports.appendEvent(active.id, "manual_capture_requested", { mode: request.mode, description: request.description });
-          if (active.observer?.isAttached()) {
-            await active.observer.snapshot(request.mode).catch(async () => {
-              await this.reports.updateSession(active.id, { warnings: ["Requested memory capture did not complete. Check native-events.jsonl for the exact reason."] });
-            });
+    try { return await this.captureAvailable(request, context); }
+    finally { this.busy = false; this.changed(); }
+  }
+
+  private async captureAvailable(request: DiagnosticCaptureRequest, context: DiagnosticSessionContext): Promise<import("../../shared/diagnostics.js").DiagnosticReportSummary> {
+    const active = this.active;
+    if (active) {
+      if (active.finalizing) await active.finalizing;
+      else {
+        await this.reports.appendEvent(active.id, "manual_capture_requested", { mode: request.mode, description: request.description });
+        if (active.observer?.isAttached()) {
+          await active.observer.snapshot(request.mode).catch(async () => {
+            await this.reports.updateSession(active.id, { warnings: ["Requested memory capture did not complete. Check native-events.jsonl for the exact reason."] });
+          });
+        } else {
+          if (active.pid) {
+            const snapshot = new DiagnosticObserver({ executable: this.options.helperPath, pid: active.pid,
+              directory: this.reports.getDirectory(active.id), onEvent: () => undefined });
+            try { await snapshot.captureOnce(request.mode); }
+            catch { await this.reports.updateSession(active.id, { warnings: ["Requested memory capture was unavailable; logs and system information were collected."] }); }
+            finally { await snapshot.stop(); }
           } else {
-            if (active.pid) {
-              const snapshot = new DiagnosticObserver({ executable: this.options.helperPath, pid: active.pid,
-                directory: this.reports.getDirectory(active.id), onEvent: () => undefined });
-              try { await snapshot.captureOnce(request.mode); }
-              catch { await this.reports.updateSession(active.id, { warnings: ["Requested memory capture was unavailable; logs and system information were collected."] }); }
-              finally { await snapshot.stop(); }
-            } else {
-              await this.reports.updateSession(active.id, { warnings: ["The game process was not available for memory capture."] });
-            }
+            await this.reports.updateSession(active.id, { warnings: ["The game process was not available for memory capture."] });
           }
         }
-        await this.reports.updateSession(active.id, { notes: request.description, systemInfoAtCapture: await collectDiagnosticSystemInfo() });
-        return await this.reports.collectSession(active.id);
       }
-      const report = await this.reports.beginSession({ ...context, manual: true, notes: request.description });
-      await this.reports.updateSession(report.id, { captureStatus: "disabled", systemInfo: await collectDiagnosticSystemInfo(),
-        warnings: ["No game was running. This is a manual system report, not a crash dump."] });
-      await this.reports.finalizeSession(report.id, { exitCode: null });
-      await this.reports.updateSession(report.id, { kind: "manual" });
-      return await this.reports.collectSession(report.id);
-    } finally { this.busy = false; this.changed(); }
+      await this.reports.updateSession(active.id, { notes: request.description, systemInfoAtCapture: await collectDiagnosticSystemInfo() });
+      return await this.reports.collectSession(active.id);
+    }
+    const report = await this.reports.beginSession({ ...context, manual: true, notes: request.description });
+    await this.reports.updateSession(report.id, { captureStatus: "disabled", systemInfo: await collectDiagnosticSystemInfo(),
+      warnings: ["No game was running. This is a manual system report, not a crash dump."] });
+    await this.reports.finalizeSession(report.id, { exitCode: null });
+    await this.reports.updateSession(report.id, { kind: "manual" });
+    return await this.reports.collectSession(report.id);
   }
 
   async exportReport(id: string, destination: string, options: { includeDumps: boolean; description: string }): Promise<void> {
     if (this.busy) throw new Error("A diagnostic operation is already running");
     this.busy = true; this.error = null; this.changed();
+    try { await this.exportAvailable(id, destination, options); }
+    finally { this.busy = false; this.changed(); }
+  }
+
+  private async exportAvailable(id: string, destination: string, options: { includeDumps: boolean; description: string }): Promise<void> {
+    const active = this.active;
+    if (active?.id === id && active.finalizing) await active.finalizing;
+    const record = await this.reports.getReport(id);
+    if (record.summary.endedAt) {
+      const windowsEvents = await collectGameWindowsEvents(record.context.pid ?? null, record.summary.startedAt, record.summary.endedAt);
+      await this.reports.updateSession(id, { windowsEvents });
+    }
+    await this.reports.exportReport(id, destination, options);
+  }
+
+  /** A player declares an incident; the launcher selects and packages its evidence. */
+  async reportCrash(destinationDirectory: string, context: DiagnosticSessionContext): Promise<{ path: string; fileName: string }> {
+    if (this.busy) throw new Error("A diagnostic operation is already running");
+    this.busy = true; this.error = null; this.changed();
+    const description = "Le joueur a déclaré un crash depuis le launcher. La déclaration ne prouve pas à elle seule une exception native ; consulter les preuves jointes.";
     try {
+      await mkdir(destinationDirectory, { recursive: true });
+      let reportId: string | null = null;
       const active = this.active;
-      if (active?.id === id && active.finalizing) await active.finalizing;
-      const record = await this.reports.getReport(id);
-      if (record.summary.endedAt) {
-        const windowsEvents = await collectGameWindowsEvents(record.context.pid ?? null, record.summary.startedAt, record.summary.endedAt);
-        await this.reports.updateSession(id, { windowsEvents });
+      if (active) {
+        if (active.finalizing) { await active.finalizing; reportId = active.id; }
+        else reportId = (await this.captureAvailable({ mode: "standard", description }, context)).id;
+      } else {
+        // Prefer the latest game, even when its exit code looked normal. A
+        // player declaration must not silently select an older known crash or
+        // a newer system-only report made without a game.
+        for (const candidate of await this.reports.listReports()) {
+          if (candidate.kind === "manual") continue;
+          const record = await this.reports.getReport(candidate.id);
+          if (record.context.manual === true) continue;
+          reportId = candidate.id; break;
+        }
+        if (!reportId) reportId = (await this.captureAvailable({ mode: "standard", description }, context)).id;
       }
-      await this.reports.exportReport(id, destination, options);
+      const declaredAt = new Date().toISOString();
+      await this.reports.updateSession(reportId, { playerReportedCrash: true, playerReportedAt: declaredAt });
+      await this.reports.appendEvent(reportId, "player_reported_crash", { at: declaredAt });
+      const report = await this.reports.getReport(reportId);
+      const date = /^\d{4}-\d{2}-\d{2}T/.test(report.summary.startedAt) ? report.summary.startedAt.slice(0, 10) : declaredAt.slice(0, 10);
+      const fileName = `ROTK-crash-${date}-${reportId.slice(0, 8)}-${randomUUID().slice(0, 8)}.zip`;
+      const path = join(destinationDirectory, fileName);
+      await this.exportAvailable(reportId, path, { includeDumps: true, description });
+      return { path, fileName };
     } finally { this.busy = false; this.changed(); }
   }
 
