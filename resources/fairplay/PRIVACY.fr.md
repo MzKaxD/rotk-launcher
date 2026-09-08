@@ -4,6 +4,8 @@ FairPlay accompagne uniquement votre session ROTK et se ferme avec le jeu. Il fo
 
 Pendant la session, il observe les DLL chargées dans le jeu (nom du fichier, empreinte SHA-256, état de signature) ainsi que des compteurs de zones de mémoire exécutables privées. Il transmet ces observations au service ROTK pour aider les administrateurs habilités à examiner des anomalies. Il ne lit ni ne transmet le contenu de la mémoire, les documents, l'historique de navigation, les mots de passe, les noms de comptes Windows ou les lignes de commande.
 
+Il calcule également les empreintes SHA-256 du jeu, du launcher, du paquet `app.asar` du launcher et de FairPlay lui-même pour les comparer à la version de référence enregistrée par ROTK. Il transmet ces empreintes, sans envoyer les fichiers ou leurs chemins. Les fichiers concernés restent ouverts en lecture pendant la session, ce qui reporte les mises à jour du launcher jusqu'à la fermeture du jeu. Les vérifications repèrent aussi les DLL nouvellement chargées ou dont le fichier change, et comptent certaines zones exécutables associées à des fichiers mappés. Ces observations restent limitées au jeu et aux composants ROTK.
+
 Deux vérifications facultatives nécessitent votre accord dans le launcher, puis une confirmation visible pour chaque demande :
 
 - **Programmes ouverts** : uniquement le nom de chaque fichier exécutable et son numéro de processus, sans chemin ni titre de fenêtre. Les noms peuvent révéler les logiciels que vous utilisez.

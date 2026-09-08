@@ -23,6 +23,7 @@
     "predist:dir": "npm run prepare:vivox && npm run verify:fairplay",
     "stage:fairplay": "node scripts/stage-fairplay.mjs",
     "verify:fairplay": "node scripts/verify-fairplay.mjs",
+    "manifest:fairplay": "node scripts/generate-fairplay-release.mjs",
     "dist": "npm run build && electron-builder --win nsis",
     "dist:dir": "npm run build && electron-builder --win dir --config.forceCodeSigning=false --config.win.signExecutable=false",
     "build:shim": "powershell -NoProfile -ExecutionPolicy Bypass -File native/steamshim/build-steam-shim.ps1",
@@ -64,6 +65,14 @@
     "artifactName": "ROTK-Launcher-${version}-${arch}.${ext}",
     "asar": true,
     "afterPack": "scripts/verify-fairplay-package.cjs",
+    "afterAllArtifactBuild": "scripts/finalize-fairplay-release.cjs",
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "onlyLoadAppFromAsar": true,
+      "enableEmbeddedAsarIntegrityValidation": true
+    },
     "forceCodeSigning": false,
     "directories": {
       "output": "release"

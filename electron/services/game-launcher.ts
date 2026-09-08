@@ -21,7 +21,7 @@ import {
 } from "./launch-ticket.js";
 import { removeRetiredGameplayPatch } from "./retired-gameplay-patch.js";
 import { deployVivoxCompatibility } from "./vivox-client.js";
-import { beginFairPlaySession, hashFairPlayFile, startFairPlay, verifyFairPlayBinary,
+import { beginFairPlaySession, measureFairPlayComponents, startFairPlay, verifyFairPlayBinary,
   type FairPlayConsent, type FairPlayHandle } from "./fairplay.js";
 
 const GAME_STARTUP_STABILITY_MS = 3_000;
@@ -49,7 +49,7 @@ export interface LaunchRequest {
   bundledShimPath: string;
   bundledVivoxProxyPath: string;
   bundledVivoxRuntimePath: string;
-  fairPlay: { executablePath: string; consent: FairPlayConsent };
+  fairPlay: { executablePath: string; consent: FairPlayConsent; packaged: boolean };
   /**
    * Integrity attestation hook. The launcher never self-exempts: it reports
    * what it observed and lets the backend decide what an absent attestation
@@ -346,10 +346,12 @@ export class GameLauncher {
 
       const executable = join(installationRoot, "H1Z1.exe");
       const expectedGameSha256 = outcome.status === "attested" ? outcome.expectedGameSha256 : undefined;
-      if (!expectedGameSha256 || await hashFairPlayFile(executable) !== expectedGameSha256) {
+      const hashes = await measureFairPlayComponents({ packaged: request.fairPlay.packaged,
+        gameExecutable: executable, launcherExecutable: process.execPath, agentExecutable: request.fairPlay.executablePath });
+      if (!expectedGameSha256 || hashes.gameSha256 !== expectedGameSha256) {
         throw new Error("FairPlay requires a game executable verified against the signed ROTK manifest. Verify the installation and retry.");
       }
-      const fairPlaySession = await beginFairPlaySession(request.runtime.websiteOrigin, launchIdentity.ticket, request.fairPlay.consent);
+      const fairPlaySession = await beginFairPlaySession(request.runtime.websiteOrigin, launchIdentity.ticket, request.fairPlay.consent, hashes);
       assertLaunchTicketFresh(launchIdentity);
       let fairPlay: FairPlayHandle | null = null;
       const child = spawn(executable, args, {

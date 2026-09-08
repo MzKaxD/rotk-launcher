@@ -815,7 +815,7 @@ function registerIpc(): void {
           bundledShimPath: resolveBundledShimPath(),
           bundledVivoxProxyPath: resolveBundledVivoxProxyPath(),
           bundledVivoxRuntimePath: resolveBundledVivoxRuntimePath(),
-          fairPlay: { executablePath: resolveBundledFairPlayPath(), consent: {
+          fairPlay: { executablePath: resolveBundledFairPlayPath(), packaged: app.isPackaged, consent: {
             processInventory: consent.checkboxChecked, gameScreenshot: consent.checkboxChecked,
           } },
           attest: () => attestInstallation(launchCredential.playerKey, launchRuntime),
