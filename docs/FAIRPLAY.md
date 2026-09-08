@@ -1,4 +1,4 @@
-# ROTK Anti-Cheat integration — protocol 2 / agent 0.2.2
+# ROTK Anti-Cheat integration — protocol 2 / agent 0.2.4
 
 The packaged launcher streams SHA-256 over actual `H1Z1.exe`, its own process
 executable, physical `resources/app.asar`, and bundled
@@ -13,10 +13,20 @@ circular hash. The approved complete tuple lives in the web service.
 
 ## Session and collection
 
-The player accepts the notice before launch. Process inventory and game
-screenshots default to disabled; when enabled, each request still requires
-separate local consent. Release integrity adds only four file hashes; no
-component paths are transmitted.
+The player explicitly accepts versioned conditions in the launcher before play.
+An unchecked box explains that senior administrators may request game-window
+screenshots and executable names/PIDs during games without another pop-up.
+One bounded local receipt is scoped to the actual account key and service
+origin, and pins both the document version and its content digest. Changes
+require new acceptance. The main process checks the receipt before launching;
+legacy optional permissions are never migrated into acceptance.
+
+The authenticated bootstrap echoes the receipt, the server stores it on the
+account's session, and each dispatched command carries its accepted version.
+The native agent skips its legacy prompt only when both the launcher/server
+receipt and this command agree. Missing or mismatching command authorization
+cannot collect evidence silently. Older sessions retain their optional prompts.
+Release integrity adds only four file hashes; no component paths are transmitted.
 
 Before spawning the game, the launcher sends protocolVersion 2, its real PID,
 the four hashes, agent version, short launch ticket and consent to

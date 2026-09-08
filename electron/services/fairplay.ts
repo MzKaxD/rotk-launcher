@@ -5,8 +5,9 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { FAIRPLAY_SHA256, FAIRPLAY_VERSION } from "./fairplay-release.js";
 import { isValidLaunchTicket } from "../../shared/launch-ticket.js";
+import { isCurrentTermsAcceptance, type FairPlayTermsAcceptance } from "../../shared/fairplay-terms.js";
 
-export interface FairPlayConsent { processInventory: boolean; gameScreenshot: boolean }
+export interface FairPlayConsent { processInventory: boolean; gameScreenshot: boolean; terms?: FairPlayTermsAcceptance }
 export interface FairPlayHashes {
   gameSha256: string; launcherSha256: string; launcherAsarSha256: string; agentSha256: string;
 }
@@ -17,6 +18,7 @@ export interface FairPlayIntegrityPolicy {
 export interface FairPlayBootstrap {
   sessionId: string; token: string; expiresAt: string; heartbeatIntervalSeconds: number;
   protocolVersion: 2; integrityPolicy: FairPlayIntegrityPolicy;
+  consentTerms?: FairPlayTermsAcceptance;
 }
 const HASH_KEYS = ["gameSha256", "launcherSha256", "launcherAsarSha256", "agentSha256"] as const;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -112,9 +114,11 @@ export function parseFairPlayBootstrap(value: unknown): FairPlayBootstrap {
     || !Number.isInteger(v.heartbeatIntervalSeconds) || v.heartbeatIntervalSeconds! < 5 || v.heartbeatIntervalSeconds! > 60) {
     throw new Error("The ROTK Anti-Cheat service sent an invalid session.");
   }
+  if (v.consentTerms !== undefined && !isCurrentTermsAcceptance(v.consentTerms)) throw new Error("Invalid ROTK Anti-Cheat agreement receipt.");
   return { sessionId: v.sessionId!, token: v.token!, expiresAt: v.expiresAt,
     heartbeatIntervalSeconds: v.heartbeatIntervalSeconds!, protocolVersion: 2,
-    integrityPolicy: parseFairPlayIntegrityPolicy(v.integrityPolicy) };
+    integrityPolicy: parseFairPlayIntegrityPolicy(v.integrityPolicy),
+    ...(v.consentTerms ? { consentTerms: v.consentTerms } : {}) };
 }
 async function readBoundedResponse(response: Response): Promise<string> {
   const reader = response.body?.getReader();
@@ -138,6 +142,7 @@ export async function beginFairPlaySession(
   const base = fairPlayOrigin(origin);
   if (!isValidLaunchTicket(ticket)) throw new Error("Invalid ROTK Anti-Cheat launch ticket.");
   const measured = parseFairPlayHashes(hashes);
+  if (consent.terms !== undefined && (!isCurrentTermsAcceptance(consent.terms) || !consent.processInventory || !consent.gameScreenshot)) throw new Error("Invalid ROTK Anti-Cheat agreement.");
   let response: Response;
   try {
     response = await fetchImpl(`${base}/api/fairplay/sessions`, {
@@ -153,6 +158,8 @@ export async function beginFairPlaySession(
   try { bootstrap = parseFairPlayBootstrap(JSON.parse(text)); }
   catch { throw new Error("Invalid ROTK Anti-Cheat service response."); }
   assertFairPlayReleasePolicy(measured, bootstrap.integrityPolicy);
+  if (bootstrap.consentTerms && (!consent.terms || bootstrap.consentTerms.version !== consent.terms.version
+    || bootstrap.consentTerms.acceptedAt !== consent.terms.acceptedAt)) throw new Error("The ROTK Anti-Cheat agreement does not match this launch.");
   return bootstrap;
 }
 
@@ -222,6 +229,13 @@ export async function startFairPlay(input: {
       gamePid: input.gamePid, expectedGameSha256: input.expectedGameSha256,
       allowProcessInventory: input.consent.processInventory,
       allowGameScreenshot: input.consent.gameScreenshot,
+      // Both this launch and the authenticated server must acknowledge the same
+      // receipt. An old server/session can never silently gain new permissions.
+      ...(bootstrap.consentTerms && isCurrentTermsAcceptance(input.consent.terms)
+        && bootstrap.consentTerms.version === input.consent.terms.version
+        && bootstrap.consentTerms.acceptedAt === input.consent.terms.acceptedAt
+        && input.consent.processInventory && input.consent.gameScreenshot
+        ? { acceptedTermsVersion: bootstrap.consentTerms.version } : {}),
     }) + "\n");
   });
   return { stop };

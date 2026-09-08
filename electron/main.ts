@@ -27,6 +27,8 @@ import {
   type PlayerIdentitySummary,
 } from "../shared/contracts.js";
 import { isAppLocale, type AppLocale } from "../shared/locale.js";
+import { FAIRPLAY_TERMS_VERSION } from "../shared/fairplay-terms.js";
+import { FairPlayTermsStore } from "./services/fairplay-terms-store.js";
 import {
   DEFAULT_PLAYER_ROLE,
   DEFAULT_SERVER_ID,
@@ -114,6 +116,7 @@ const legacyUserDataDirectories = usesIsolatedDevelopmentData
 
 let mainWindow: BrowserWindow | null = null;
 let configStore: ConfigStore;
+let fairPlayTermsStore: FairPlayTermsStore;
 let playerKeyStore: PlayerKeyStore;
 let updateFeed: UpdateFeedService;
 let assetSync: AssetSyncService;
@@ -388,6 +391,8 @@ async function attestInstallation(
 async function snapshot(): Promise<LauncherSnapshot> {
   const configuredRoot = await installationRoot();
   const runtime = activeRuntime();
+  const key = activeKey();
+  const terms = key ? await fairPlayTermsStore.get(runtime.websiteOrigin, key) : null;
   return {
     appVersion: app.getVersion(),
     phase,
@@ -411,6 +416,7 @@ async function snapshot(): Promise<LauncherSnapshot> {
       })),
     },
     playerIdentity: identitySummary(),
+    fairPlayTerms: { version: FAIRPLAY_TERMS_VERSION, acceptedAt: terms?.acceptedAt ?? null },
     launcherUpdate: launcherUpdate.state,
     assetSync: assetSyncSummary(),
     integrityCheck: attestationProgress
@@ -768,7 +774,7 @@ function registerIpc(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.play,
-    trustedHandler(async (): Promise<OperationResult<{ pid: number }>> => {
+    trustedHandler(async (_event, acceptedTermsVersion: unknown): Promise<OperationResult<{ pid: number }>> => {
       if (phase !== "ready") return { ok: false, error: MAIN_COPY[currentLocale].clientNotReady };
       const selectedKey = activeKey();
       if (!selectedKey) {
@@ -785,6 +791,19 @@ function registerIpc(): void {
       const launchRuntime = activeRuntime();
       phase = "launching";
       lastErrorRaw = null;
+      // Consent is checked in the main process, before assets, authentication or
+      // game spawn. A new account or changed document must accept explicitly.
+      let terms;
+      try {
+        terms = acceptedTermsVersion === undefined
+          ? await fairPlayTermsStore.get(launchRuntime.websiteOrigin, selectedKey)
+          : await fairPlayTermsStore.accept(launchRuntime.websiteOrigin, selectedKey, acceptedTermsVersion);
+        if (!terms) throw new Error(currentLocale === "fr"
+          ? "Acceptez les conditions ROTK Anti-Cheat avant de jouer."
+          : "Accept the ROTK Anti-Cheat conditions before playing.");
+      } catch (error) {
+        phase = "ready"; await broadcastSnapshot(); return operationError(error);
+      }
       await broadcastSnapshot();
       // A discovered update must be fully downloaded and installed before
       // starting the game; launching with a partially updated asset set is unsafe.
@@ -795,18 +814,6 @@ function registerIpc(): void {
         return { ok: false, error: assetResult.error };
       }
       try {
-        const consent = await dialog.showMessageBox({
-          type: "info", title: "ROTK Anti-Cheat · ROTK",
-          message: currentLocale === "fr" ? "Protection ROTK Anti-Cheat pendant votre partie" : "ROTK Anti-Cheat protection during your game",
-          detail: currentLocale === "fr"
-            ? "ROTK Anti-Cheat vérifie le jeu et transmet des noms de DLL, empreintes et anomalies aux administrateurs. Il s’arrête avec le jeu. En mode observation, une vérification indisponible ne ferme pas votre partie. Aucun document personnel, chemin de fichier, touche clavier ou écran du bureau n’est collecté. Les captures du jeu et la liste des processus sont facultatives et chaque demande nécessite votre accord."
-            : "ROTK Anti-Cheat checks the game and reports DLL filenames, hashes and anomalies to administrators. It stops with the game. In observation mode, an unavailable check does not close your game. It collects no personal documents, file paths, keystrokes or desktop captures. Game screenshots and process lists are optional; each request asks for your approval.",
-          buttons: currentLocale === "fr" ? ["Accepter et jouer", "Annuler"] : ["Accept and play", "Cancel"],
-          defaultId: 1, cancelId: 1,
-          checkboxLabel: currentLocale === "fr" ? "Autoriser les demandes facultatives (confirmation à chaque demande)" : "Allow optional requests (ask me each time)",
-          checkboxChecked: false,
-        });
-        if (consent.response !== 0) { phase = "ready"; await broadcastSnapshot(); return { ok: false, cancelled: true, error: "ROTK Anti-Cheat launch cancelled." }; }
         const pid = await gameLauncher.launch({
           config: await configStore.load(),
           identity: launchCredential,
@@ -816,7 +823,7 @@ function registerIpc(): void {
           bundledVivoxProxyPath: resolveBundledVivoxProxyPath(),
           bundledVivoxRuntimePath: resolveBundledVivoxRuntimePath(),
           fairPlay: { executablePath: resolveBundledFairPlayPath(), packaged: app.isPackaged, consent: {
-            processInventory: consent.checkboxChecked, gameScreenshot: consent.checkboxChecked,
+            processInventory: true, gameScreenshot: true, terms,
           } },
           attest: () => attestInstallation(launchCredential.playerKey, launchRuntime),
           launcherVersion: app.getVersion(),
@@ -1004,6 +1011,7 @@ function createWindow(): BrowserWindow {
 }
 
 async function initialize(): Promise<void> {
+  fairPlayTermsStore = new FairPlayTermsStore(app.getPath("userData"));
   configStore = new ConfigStore(
     app.getPath("userData"),
     legacyUserDataDirectories,

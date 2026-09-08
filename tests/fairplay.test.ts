@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
+import { FAIRPLAY_TERMS_VERSION } from "../shared/fairplay-terms.js";
 import { PassThrough, Writable } from "node:stream";
 const mocks = vi.hoisted(() => ({ spawn: vi.fn(), hash: "" }));
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
@@ -16,6 +17,7 @@ const session: FairPlayBootstrap = { sessionId: "c89d3104-f74d-48ec-b8d0-598983f
   expiresAt: "2026-09-09T12:00:00.000Z", heartbeatIntervalSeconds: 15, protocolVersion: 2,
   integrityPolicy: { revision: 1, releaseId: "e89d3104-f74d-48ec-b8d0-598983f70da6", challenge: "N".repeat(43), expected: hashes, enforcement: "enforce" } };
 const consent = { processInventory: false, gameScreenshot: false };
+const terms = { version: FAIRPLAY_TERMS_VERSION, acceptedAt: "2026-09-08T12:00:00.000Z" };
 const folders: string[] = [];
 afterEach(async () => { vi.clearAllMocks(); await Promise.all(folders.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 async function artifact() {
@@ -99,6 +101,34 @@ describe("FairPlay release and transport boundaries", () => {
   });
 });
 describe("FairPlay game supervision", () => {
+  it("requires matching explicit launcher and server receipts to skip individual prompts", async () => {
+    const executablePath = await artifact();
+    for (const [permission, response, authorized] of [
+      [{ processInventory: true, gameScreenshot: true, terms }, { ...session, consentTerms: terms }, true],
+      [{ processInventory: true, gameScreenshot: true, terms }, session, false],
+      [consent, { ...session, consentTerms: terms }, false],
+      [{ processInventory: true, gameScreenshot: false, terms }, { ...session, consentTerms: terms }, false],
+      [{ processInventory: true, gameScreenshot: true, terms: { ...terms, acceptedAt: "2026-09-08T12:01:00.000Z" } }, { ...session, consentTerms: terms }, false],
+    ] as const) {
+      const child = fakeProcess("ready");
+      const handle = await startFairPlay({ executablePath, apiBaseUrl: "https://rotk.app", bootstrap: response,
+        gamePid: 42, expectedGameSha256: "b".repeat(64), consent: permission, onUnexpectedExit: vi.fn() });
+      expect(JSON.parse(child.received).acceptedTermsVersion).toBe(authorized ? FAIRPLAY_TERMS_VERSION : undefined);
+      handle.stop();
+    }
+  });
+  it("rejects forged, obsolete or contradictory agreement receipts", async () => {
+    for (const invalid of [{ ...terms, version: "old" }, { ...terms, acceptedAt: "never" }, true]) {
+      expect(() => parseFairPlayBootstrap({ ...session, consentTerms: invalid })).toThrow("agreement");
+    }
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ...session, consentTerms: terms }), { status: 201 }));
+    await expect(beginFairPlaySession("https://rotk.app", "T".repeat(43), consent, hashes, fetcher)).rejects.toThrow("does not match");
+    const agreed = { processInventory: true, gameScreenshot: true, terms };
+    const accepted = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ...session, consentTerms: terms }), { status: 201 }));
+    expect((await beginFairPlaySession("https://rotk.app", "T".repeat(43), agreed, hashes, accepted)).consentTerms).toEqual(terms);
+    expect(JSON.parse(accepted.mock.calls[0]![1].body).consent).toEqual(agreed);
+    await expect(beginFairPlaySession("https://rotk.app", "T".repeat(43), { ...agreed, gameScreenshot: false }, hashes, accepted)).rejects.toThrow("agreement");
+  });
   it("keeps observation launches playable when the bootstrap service fails", async () => {
     const unavailable = vi.fn();
     const launch = () => beginFairPlaySession("https://rotk.app", "T".repeat(43), consent, hashes,

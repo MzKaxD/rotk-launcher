@@ -7,6 +7,8 @@ import { NewsCarousel } from "./components/NewsCarousel";
 import { PlayerIdentityPanel } from "./components/PlayerIdentityPanel";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { WindowChrome } from "./components/WindowChrome";
+import { AntiCheatTermsDialog } from "./components/AntiCheatTermsDialog";
+import { FAIRPLAY_TERMS_VERSION } from "../shared/fairplay-terms";
 import { useI18n } from "./i18n";
 
 export default function App() {
@@ -14,6 +16,7 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<LauncherSnapshot | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [identityOpen, setIdentityOpen] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [transientError, setTransientError] = useState<string | null>(null);
   const [detectAttempted, setDetectAttempted] = useState(false);
@@ -82,7 +85,10 @@ export default function App() {
   const install = () => perform(() => window.rotk.install());
   const play = () => perform(() => window.rotk.play());
   const onPrimary = () => {
-    if (snapshot.canPlay) void play();
+    if (snapshot.canPlay) {
+      if (!snapshot.fairPlayTerms.acceptedAt) setTermsOpen(true);
+      else void play();
+    }
     else if (snapshot.installationRoot && !snapshot.playerIdentity.configured) {
       setSetupOpen(false);
       setIdentityOpen(true);
@@ -111,6 +117,7 @@ export default function App() {
         snapshot={snapshot}
         busy={busy}
         onPrimary={onPrimary}
+        onTerms={() => setTermsOpen(true)}
         onSetup={() => {
           setIdentityOpen(false);
           setSetupOpen(true);
@@ -122,6 +129,11 @@ export default function App() {
         onSelectLaunchProfile={(serverId, role) =>
           void perform(() => window.rotk.setLaunchProfile(serverId, role))}
       />
+      <AntiCheatTermsDialog open={termsOpen} accepted={Boolean(snapshot.fairPlayTerms.acceptedAt)} busy={busy}
+        onClose={() => setTermsOpen(false)} onAccept={() => {
+          setTermsOpen(false);
+          void perform(() => window.rotk.play(FAIRPLAY_TERMS_VERSION));
+        }}/>
       <PlayerIdentityPanel
         snapshot={snapshot}
         open={identityOpen}

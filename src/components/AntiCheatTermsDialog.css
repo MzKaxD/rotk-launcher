@@ -1,0 +1,23 @@
+.anti-cheat-terms { width: min(700px, calc(100vw - 40px)); max-height: calc(100dvh - 54px); padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--paper); box-shadow: 0 22px 90px #0009; overflow: hidden; }
+.anti-cheat-terms[open] { display: flex; flex-direction: column; animation: terms-enter 140ms ease-out; }
+.anti-cheat-terms::backdrop { background: #000b; }
+.anti-cheat-terms header { display: flex; align-items: flex-start; gap: 14px; padding: 22px 26px 18px; border-bottom: 1px solid var(--line); }
+.anti-cheat-terms header svg { color: var(--signal); margin-top: 3px; flex-shrink: 0; }
+.anti-cheat-terms h2 { margin: 0 0 6px; font-size: 23px; }
+.anti-cheat-terms p { margin: 0; font-size: 13px; line-height: 1.65; color: var(--paper-dim); }
+.anti-cheat-terms__body { padding: 20px 26px; overflow-y: auto; min-height: 0; }
+.anti-cheat-terms section + section { margin-top: 17px; }
+.anti-cheat-terms h3 { margin: 0 0 5px; font-size: 14px; }
+.anti-cheat-terms button { border: 1px solid var(--line); border-radius: 5px; background: transparent; padding: 10px 14px; cursor: pointer; font-size: 13px; transition: background 120ms ease; }
+.anti-cheat-terms button:hover:not(:disabled) { background: var(--surface-2); }
+.anti-cheat-terms button:disabled { opacity: .4; cursor: default; }
+.anti-cheat-terms .anti-cheat-terms__link { border: 0; text-decoration: underline; padding: 0; margin: 16px 12px 0 0; }
+.anti-cheat-terms small { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.anti-cheat-terms footer { padding: 17px 26px 20px; border-top: 1px solid var(--line); flex-shrink: 0; }
+.anti-cheat-terms footer label { display: flex; align-items: flex-start; gap: 10px; font-size: 12px; line-height: 1.6; cursor: pointer; }
+.anti-cheat-terms input { width: 17px; height: 17px; margin: 2px 0 0; flex: 0 0 17px; accent-color: var(--signal); }
+.anti-cheat-terms footer > div { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.anti-cheat-terms .anti-cheat-terms__accept { background: var(--signal); border-color: var(--signal); color: white; }
+.anti-cheat-terms .anti-cheat-terms__accept:hover:not(:disabled) { background: var(--signal-dark); }
+@keyframes terms-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .anti-cheat-terms[open] { animation: none; } .anti-cheat-terms button { transition: none; } }

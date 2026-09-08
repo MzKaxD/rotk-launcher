@@ -1,18 +1,18 @@
-# FairPlay — informations pour les joueurs
+# ROTK Anti-Cheat — conditions et informations pour les joueurs
 
-FairPlay accompagne uniquement votre session ROTK et se ferme avec le jeu. Il fonctionne avec vos droits habituels, sans pilote, sans service permanent et sans démarrage automatique avec Windows.
+ROTK Anti-Cheat accompagne uniquement votre session ROTK et se ferme avec le jeu. Il fonctionne avec vos droits habituels, sans pilote, sans service permanent et sans démarrage automatique avec Windows.
 
 Pendant la session, il observe les DLL chargées dans le jeu (nom du fichier, empreinte SHA-256, état de signature) ainsi que des compteurs de zones de mémoire exécutables privées. Il transmet ces observations au service ROTK pour aider les administrateurs habilités à examiner des anomalies. Il ne lit ni ne transmet le contenu de la mémoire, les documents, l'historique de navigation, les mots de passe, les noms de comptes Windows ou les lignes de commande.
 
 Il calcule également les empreintes SHA-256 du jeu, du launcher, du paquet `app.asar` du launcher et de FairPlay lui-même pour les comparer à la version de référence enregistrée par ROTK. Il transmet ces empreintes, sans envoyer les fichiers ou leurs chemins. Les fichiers concernés restent ouverts en lecture pendant la session, ce qui reporte les mises à jour du launcher jusqu'à la fermeture du jeu. Les vérifications repèrent aussi les DLL nouvellement chargées ou dont le fichier change, et comptent certaines zones exécutables associées à des fichiers mappés. Ces observations restent limitées au jeu et aux composants ROTK.
 
-Deux vérifications facultatives nécessitent votre accord dans le launcher, puis une confirmation visible pour chaque demande :
+Avant de jouer, le launcher vous présente les conditions ROTK Anti-Cheat, version 2026-09-08.1, avec une case non cochée. En les acceptant explicitement, vous autorisez les administrateurs habilités au plus haut niveau à demander les vérifications suivantes pendant vos parties, sans nouvelle fenêtre de confirmation :
 
 - **Programmes ouverts** : uniquement le nom de chaque fichier exécutable et son numéro de processus, sans chemin ni titre de fenêtre. Les noms peuvent révéler les logiciels que vous utilisez.
 - **Capture du jeu** : uniquement la zone intérieure de la fenêtre ROTK au premier plan. Le chat et les informations visibles dans le jeu peuvent figurer dans cette image. Le bureau et les autres fenêtres ne sont jamais capturés. Si cette capture limitée échoue, FairPlay signale un échec.
 
-Vous pouvez refuser ces demandes. Sans réponse, la confirmation est refusée après environ vingt secondes. Les options facultatives sont désactivées par défaut. FairPlay n'offre aucune commande de prise en main du PC, d'ouverture de fichier, d'exécution de programme ou d'envoi d'un exécutable à un administrateur.
+Refuser les conditions annule le lancement du jeu. L'accord est enregistré pour le compte utilisé sur ce launcher et sera redemandé si les conditions changent. Sa version et sa date d'acceptation déclarée par le launcher sont enregistrées avec chaque session ; le serveur enregistre également la date de réception. Les anciennes permissions facultatives ne sont pas transformées en accord : les anciens clients conservent leurs confirmations par demande jusqu'à leur mise à jour. Fermer le jeu arrête la collecte. ROTK Anti-Cheat n'offre aucune commande de prise en main du PC, d'ouverture de fichier, d'exécution de programme ou d'envoi d'un exécutable à un administrateur.
 
 Une observation anormale indique un élément à examiner : elle ne prouve pas à elle seule une triche. Des composants légitimes du jeu ou des overlays peuvent produire des observations similaires. La décision de sanction doit être examinée par un administrateur habilité.
 
-Les données sont envoyées via HTTPS au service ROTK configuré par le launcher. Les détails de conservation, d'accès et de contact doivent être communiqués par l'exploitant dans la politique de confidentialité ROTK avant activation publique.
+Les données sont envoyées via HTTPS au service ROTK configuré par le launcher. Les demandes et accès des administrateurs sont journalisés. Les captures et listes demandées sont accessibles 24 heures ; les sessions et alertes, 14 jours ; l'historique d'accès, 30 jours. Les données expirées sont supprimées par un nettoyage horaire. Politique complète et contact : https://rotk.app/privacy. En mode observation, une mesure manquante ou une interruption de l'anti-cheat ne ferme pas le jeu.

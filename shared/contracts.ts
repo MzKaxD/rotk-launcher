@@ -141,6 +141,7 @@ export interface LauncherSnapshot {
   updates: PublishedUpdate[];
   runtime: RuntimeSummary;
   playerIdentity: PlayerIdentitySummary;
+  fairPlayTerms: { version: string; acceptedAt: string | null };
   launcherUpdate: LauncherUpdateSummary;
   assetSync: AssetSyncSummary;
   integrityCheck: IntegrityCheckSummary | null;
@@ -173,7 +174,7 @@ export interface RotkLauncherApi {
   selectDestination(): Promise<OperationResult<{ destinationRoot: string }>>;
   install(): Promise<OperationResult<{ installationRoot: string }>>;
   cancelInstall(): Promise<void>;
-  play(): Promise<OperationResult<{ pid: number }>>;
+  play(acceptedTermsVersion?: string): Promise<OperationResult<{ pid: number }>>;
   /** Opens a ROTK site path; `serverId` picks which site, defaulting to the selected one. */
   openWebsite(path: string, serverId?: ServerId): Promise<OperationResult>;
   checkLauncherUpdate(): Promise<void>;

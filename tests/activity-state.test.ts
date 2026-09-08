@@ -63,6 +63,7 @@ function snapshot(overrides: Partial<LauncherSnapshot> = {}): LauncherSnapshot {
     error: null,
     gamePid: null,
     updateRequired: false,
+    fairPlayTerms: { version: "2026-09-08.1", acceptedAt: null },
     canPlay: true,
     ...overrides,
   };
