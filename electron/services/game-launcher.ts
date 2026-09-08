@@ -362,7 +362,7 @@ export class GameLauncher {
         const hashes = await measureFairPlayComponents({ packaged: request.fairPlay.packaged,
           gameExecutable: executable, launcherExecutable: process.execPath, agentExecutable: request.fairPlay.executablePath });
         if (fairPlayMode === "enforce" && (!expectedGameSha256 || hashes.gameSha256 !== expectedGameSha256)) {
-          throw new Error("FairPlay requires a game executable verified against the signed ROTK manifest. Verify the installation and retry.");
+          throw new Error("ROTK Anti-Cheat requires a game executable verified against the signed ROTK manifest. Verify the installation and retry.");
         }
         const bootstrap = await beginFairPlaySession(request.runtime.websiteOrigin, launchIdentity.ticket, request.fairPlay.consent, hashes);
         return { bootstrap, gameSha256: hashes.gameSha256 };

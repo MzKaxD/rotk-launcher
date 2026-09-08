@@ -94,7 +94,7 @@ describe("FairPlay release and transport boundaries", () => {
     const cancel = vi.fn();
     const stream = new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(8_193)); }, cancel });
     await expect(beginFairPlaySession("https://rotk.app", "T".repeat(43), consent, hashes,
-      vi.fn().mockResolvedValue(new Response(stream)))).rejects.toThrow("Invalid FairPlay");
+      vi.fn().mockResolvedValue(new Response(stream)))).rejects.toThrow("Invalid ROTK Anti-Cheat");
     expect(cancel).toHaveBeenCalledOnce();
   });
 });

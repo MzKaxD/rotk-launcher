@@ -1,4 +1,4 @@
-# FairPlay integration — protocol 2 / agent 0.2.2
+# ROTK Anti-Cheat integration — protocol 2 / agent 0.2.2
 
 The packaged launcher streams SHA-256 over actual `H1Z1.exe`, its own process
 executable, physical `resources/app.asar`, and bundled
@@ -33,7 +33,7 @@ Workers drain their output pipe after child exit, including a write/exit racing
 with an empty pipe peek. Hashing is bounded to 45 seconds and repeats every two
 minutes, without blocking readiness or heartbeats.
 
-The authenticated launch ticket explicitly advertises FairPlay's mode. In
+The authenticated launch ticket explicitly advertises ROTK Anti-Cheat's mode. In
 observation mode bootstrap outages, missing/corrupt agent files, failed native
 startup, agent crashes, missing checks and network interruptions never close
 the game. Unverified agent files are not executed. If collection cannot start,
@@ -59,12 +59,12 @@ production release. Native source/private build files stay outside the public
 launcher repository. Distribution contains EXE, checksum, license and player
 notice only; no native source or PDB.
 
-1. Build and, for production signing, sign FairPlay in its private build process.
+1. Build and, for production signing, sign ROTK Anti-Cheat in its private build process.
    Stage those final bytes. Staging executes the trusted build's inert
    `--self-test` and derives its version from the result; it never relabels an
    older executable as a new protocol version.
 2. Package the launcher. Its native digest is compiled into ASAR, so the
-   packager excludes FairPlay from subsequent signing. The afterPack check
+   packager excludes ROTK Anti-Cheat from subsequent signing. The afterPack check
    verifies that digest and the native-directory allowlist.
 3. Generate the four-component manifest after all signing, resource edits,
    fuse changes and packaging. The `afterAllArtifactBuild` hook does this,
@@ -79,7 +79,7 @@ Example local candidate:
 node scripts/stage-fairplay.mjs <trusted-private-build>/FairPlay.exe
 $env:ROTK_FAIRPLAY_GAME_EXE = 'E:\H1Z1-MODDING\Z1BR\H1Z1.exe'
 $env:ROTK_FAIRPLAY_GAME_VERSION = '2016-livepcmeasured'
-$env:ROTK_FAIRPLAY_RELEASE_LABEL = 'LOCAL-CANDIDATE-FairPlay-0.2.0'
+$env:ROTK_FAIRPLAY_RELEASE_LABEL = 'LOCAL-CANDIDATE-ROTK Anti-Cheat-0.2.0'
 npm run dist:dir
 ```
 
@@ -92,7 +92,7 @@ To regenerate after an external signing operation:
 ```powershell
 npm run manifest:fairplay -- --package release/win-unpacked `
   --game 'E:\H1Z1-MODDING\Z1BR\H1Z1.exe' --game-version 2016-livepcmeasured `
-  --label LOCAL-CANDIDATE-FairPlay-0.2.0 --output release/fairplay-release-candidate.json
+  --label LOCAL-CANDIDATE-ROTK Anti-Cheat-0.2.0 --output release/fairplay-release-candidate.json
 ```
 
 Import JSON has exactly schemaVersion, label, gameVersion, launcherVersion,
@@ -100,7 +100,7 @@ agentVersion and hashes. Hash keys are gameSha256, launcherSha256,
 launcherAsarSha256, agentSha256. A separate local `.provenance.json` receipt
 records origin without uploading developer paths. Outputs must be outside
 the package and cannot be symbolic/hard links. The default hook output is
-`release/FairPlay-release-candidate.json`; override with
+`release/ROTK Anti-Cheat-release-candidate.json`; override with
 `ROTK_FAIRPLAY_RELEASE_MANIFEST`.
 
 ## Electron restrictions and validation

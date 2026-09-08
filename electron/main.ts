@@ -796,17 +796,17 @@ function registerIpc(): void {
       }
       try {
         const consent = await dialog.showMessageBox({
-          type: "info", title: "FairPlay · ROTK",
-          message: currentLocale === "fr" ? "Protection FairPlay pendant votre partie" : "FairPlay protection during your game",
+          type: "info", title: "ROTK Anti-Cheat · ROTK",
+          message: currentLocale === "fr" ? "Protection ROTK Anti-Cheat pendant votre partie" : "ROTK Anti-Cheat protection during your game",
           detail: currentLocale === "fr"
-            ? "FairPlay vérifie le jeu et transmet des noms de DLL, empreintes et anomalies aux administrateurs. Il s’arrête avec le jeu. En mode observation, une vérification indisponible ne ferme pas votre partie. Aucun document personnel, chemin de fichier, touche clavier ou écran du bureau n’est collecté. Les captures du jeu et la liste des processus sont facultatives et chaque demande nécessite votre accord."
-            : "FairPlay checks the game and reports DLL filenames, hashes and anomalies to administrators. It stops with the game. In observation mode, an unavailable check does not close your game. It collects no personal documents, file paths, keystrokes or desktop captures. Game screenshots and process lists are optional; each request asks for your approval.",
+            ? "ROTK Anti-Cheat vérifie le jeu et transmet des noms de DLL, empreintes et anomalies aux administrateurs. Il s’arrête avec le jeu. En mode observation, une vérification indisponible ne ferme pas votre partie. Aucun document personnel, chemin de fichier, touche clavier ou écran du bureau n’est collecté. Les captures du jeu et la liste des processus sont facultatives et chaque demande nécessite votre accord."
+            : "ROTK Anti-Cheat checks the game and reports DLL filenames, hashes and anomalies to administrators. It stops with the game. In observation mode, an unavailable check does not close your game. It collects no personal documents, file paths, keystrokes or desktop captures. Game screenshots and process lists are optional; each request asks for your approval.",
           buttons: currentLocale === "fr" ? ["Accepter et jouer", "Annuler"] : ["Accept and play", "Cancel"],
           defaultId: 1, cancelId: 1,
           checkboxLabel: currentLocale === "fr" ? "Autoriser les demandes facultatives (confirmation à chaque demande)" : "Allow optional requests (ask me each time)",
           checkboxChecked: false,
         });
-        if (consent.response !== 0) { phase = "ready"; await broadcastSnapshot(); return { ok: false, cancelled: true, error: "FairPlay launch cancelled." }; }
+        if (consent.response !== 0) { phase = "ready"; await broadcastSnapshot(); return { ok: false, cancelled: true, error: "ROTK Anti-Cheat launch cancelled." }; }
         const pid = await gameLauncher.launch({
           config: await configStore.load(),
           identity: launchCredential,

@@ -37,25 +37,25 @@ export function fairPlayOrigin(value: string): string {
   const url = new URL(value);
   if (!["https://rotk.app", "https://test.rotk.app"].includes(url.origin)
     || url.username || url.password || url.search || url.hash || url.pathname !== "/") {
-    throw new Error("Invalid FairPlay service origin.");
+    throw new Error("Invalid ROTK Anti-Cheat service origin.");
   }
   return url.origin;
 }
 export async function hashFairPlayFile(path: string, maximumBytes = 512 * 1024 * 1024): Promise<string> {
   const info = await rawFs.promises.stat(path);
-  if (!info.isFile() || info.size <= 0 || info.size > maximumBytes) throw new Error("FairPlay cannot measure this release component.");
+  if (!info.isFile() || info.size <= 0 || info.size > maximumBytes) throw new Error("ROTK Anti-Cheat cannot measure this release component.");
   const hash = createHash("sha256");
   let bytes = 0;
   for await (const chunk of rawFs.createReadStream(path, { signal: AbortSignal.timeout(30_000) })) {
     bytes += chunk.length;
-    if (bytes > maximumBytes) throw new Error("FairPlay component exceeds its measurement limit.");
+    if (bytes > maximumBytes) throw new Error("ROTK Anti-Cheat component exceeds its measurement limit.");
     hash.update(chunk);
   }
-  if (bytes !== info.size) throw new Error("FairPlay component changed during measurement.");
+  if (bytes !== info.size) throw new Error("ROTK Anti-Cheat component changed during measurement.");
   return hash.digest("hex");
 }
 export async function verifyFairPlayBinary(path: string, expectedHash = FAIRPLAY_SHA256): Promise<void> {
-  if (!/^[a-f0-9]{64}$/.test(expectedHash)) throw new Error("This launcher release has no verified FairPlay agent.");
+  if (!/^[a-f0-9]{64}$/.test(expectedHash)) throw new Error("This launcher release has no verified ROTK Anti-Cheat agent.");
   const info = await rawFs.promises.stat(path).catch(() => null);
   if (!info?.isFile() || info.size <= 0 || info.size > 32 * 1024 * 1024) {
     throw new Error("FairPlay.exe is missing. Repair or reinstall the ROTK launcher.");
@@ -65,37 +65,37 @@ export async function verifyFairPlayBinary(path: string, expectedHash = FAIRPLAY
   }
 }
 export function parseFairPlayHashes(value: unknown): FairPlayHashes {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("Invalid FairPlay release hashes.");
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("Invalid ROTK Anti-Cheat release hashes.");
   const row = value as Record<string, unknown>;
   if (Object.keys(row).length !== 4 || HASH_KEYS.some((key) => typeof row[key] !== "string" || !SHA256.test(row[key]))) {
-    throw new Error("Invalid FairPlay release hashes.");
+    throw new Error("Invalid ROTK Anti-Cheat release hashes.");
   }
   return Object.fromEntries(HASH_KEYS.map((key) => [key, row[key]])) as unknown as FairPlayHashes;
 }
 export function parseFairPlayIntegrityPolicy(value: unknown): FairPlayIntegrityPolicy {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("Invalid FairPlay integrity policy.");
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("Invalid ROTK Anti-Cheat integrity policy.");
   const p = value as Record<string, unknown>;
   if (Object.keys(p).length !== 5 || !Number.isSafeInteger(p.revision) || (p.revision as number) < 0 || (p.revision as number) > 2147483647
     || !(p.releaseId === null || (typeof p.releaseId === "string" && UUID.test(p.releaseId)))
     || typeof p.challenge !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(p.challenge)
-    || !["observe", "enforce"].includes(String(p.enforcement))) throw new Error("Invalid FairPlay integrity policy.");
+    || !["observe", "enforce"].includes(String(p.enforcement))) throw new Error("Invalid ROTK Anti-Cheat integrity policy.");
   const expected = p.expected === null ? null : parseFairPlayHashes(p.expected);
   if ((expected === null) !== (p.releaseId === null) || (p.enforcement === "enforce" && expected === null)) {
-    throw new Error("FairPlay enforcement has no complete approved release.");
+    throw new Error("ROTK Anti-Cheat enforcement has no complete approved release.");
   }
   return { revision: p.revision as number, releaseId: p.releaseId as string | null, challenge: p.challenge,
     expected, enforcement: p.enforcement as "observe" | "enforce" };
 }
 export function assertFairPlayReleasePolicy(hashes: FairPlayHashes, policy: FairPlayIntegrityPolicy): void {
   if (policy.enforcement === "enforce" && (!policy.expected || HASH_KEYS.some((key) => hashes[key] !== policy.expected![key]))) {
-    throw new Error("This combination of game, launcher and FairPlay is not an approved ROTK release. Update or repair the launcher.");
+    throw new Error("This combination of game, launcher and ROTK Anti-Cheat is not an approved ROTK release. Update or repair the launcher.");
   }
 }
 /** Derive archive path from the real launcher executable, never renderer input. */
 export async function measureFairPlayComponents(input: {
   packaged: boolean; gameExecutable: string; launcherExecutable: string; agentExecutable: string;
 }): Promise<FairPlayHashes> {
-  if (!input.packaged) throw new Error("FairPlay release integrity is unavailable in development. Use a packaged ROTK launcher; development hashes are never fabricated.");
+  if (!input.packaged) throw new Error("ROTK Anti-Cheat release integrity is unavailable in development. Use a packaged ROTK launcher; development hashes are never fabricated.");
   const [gameSha256, launcherSha256, launcherAsarSha256, agentSha256] = await Promise.all([
     hashFairPlayFile(input.gameExecutable), hashFairPlayFile(input.launcherExecutable),
     hashFairPlayFile(join(dirname(input.launcherExecutable), "resources", "app.asar"), 1024 * 1024 * 1024),
@@ -110,7 +110,7 @@ export function parseFairPlayBootstrap(value: unknown): FairPlayBootstrap {
     || !/^[A-Za-z0-9_-]{43}$/.test(v.token ?? "")
     || typeof v.expiresAt !== "string" || !Number.isFinite(Date.parse(v.expiresAt))
     || !Number.isInteger(v.heartbeatIntervalSeconds) || v.heartbeatIntervalSeconds! < 5 || v.heartbeatIntervalSeconds! > 60) {
-    throw new Error("The FairPlay service sent an invalid session.");
+    throw new Error("The ROTK Anti-Cheat service sent an invalid session.");
   }
   return { sessionId: v.sessionId!, token: v.token!, expiresAt: v.expiresAt,
     heartbeatIntervalSeconds: v.heartbeatIntervalSeconds!, protocolVersion: 2,
@@ -118,7 +118,7 @@ export function parseFairPlayBootstrap(value: unknown): FairPlayBootstrap {
 }
 async function readBoundedResponse(response: Response): Promise<string> {
   const reader = response.body?.getReader();
-  if (!reader) throw new Error("Invalid FairPlay service response.");
+  if (!reader) throw new Error("Invalid ROTK Anti-Cheat service response.");
   const chunks: Uint8Array[] = [];
   let length = 0;
   try {
@@ -126,7 +126,7 @@ async function readBoundedResponse(response: Response): Promise<string> {
       const { done, value } = await reader.read();
       if (done) break;
       length += value.byteLength;
-      if (length > 8_192) throw new Error("Invalid FairPlay service response.");
+      if (length > 8_192) throw new Error("Invalid ROTK Anti-Cheat service response.");
       chunks.push(value);
     }
     return Buffer.concat(chunks, length).toString("utf8");
@@ -136,7 +136,7 @@ export async function beginFairPlaySession(
   origin: string, ticket: string, consent: FairPlayConsent, hashes: FairPlayHashes, fetchImpl: typeof fetch = fetch,
 ): Promise<FairPlayBootstrap> {
   const base = fairPlayOrigin(origin);
-  if (!isValidLaunchTicket(ticket)) throw new Error("Invalid FairPlay launch ticket.");
+  if (!isValidLaunchTicket(ticket)) throw new Error("Invalid ROTK Anti-Cheat launch ticket.");
   const measured = parseFairPlayHashes(hashes);
   let response: Response;
   try {
@@ -146,12 +146,12 @@ export async function beginFairPlaySession(
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ protocolVersion: 2, ticket, agentVersion: FAIRPLAY_VERSION, hashes: measured, launcherPid: process.pid, consent }),
     });
-  } catch { throw new Error("FairPlay could not reach the ROTK service. Please try again."); }
-  if (!response.ok) throw new Error(`FairPlay could not start a protected session (HTTP ${response.status}).`);
+  } catch { throw new Error("ROTK Anti-Cheat could not reach the ROTK service. Please try again."); }
+  if (!response.ok) throw new Error(`ROTK Anti-Cheat could not start a protected session (HTTP ${response.status}).`);
   const text = await readBoundedResponse(response);
   let bootstrap: FairPlayBootstrap;
   try { bootstrap = parseFairPlayBootstrap(JSON.parse(text)); }
-  catch { throw new Error("Invalid FairPlay service response."); }
+  catch { throw new Error("Invalid ROTK Anti-Cheat service response."); }
   assertFairPlayReleasePolicy(measured, bootstrap.integrityPolicy);
   return bootstrap;
 }
@@ -166,7 +166,7 @@ export async function startFairPlay(input: {
   const apiBaseUrl = fairPlayOrigin(input.apiBaseUrl);
   const bootstrap = parseFairPlayBootstrap(input.bootstrap);
   if (!Number.isInteger(input.gamePid) || input.gamePid <= 0 || !/^[a-f0-9]{64}$/.test(input.expectedGameSha256)) {
-    throw new Error("FairPlay cannot bind this game process.");
+    throw new Error("ROTK Anti-Cheat cannot bind this game process.");
   }
   await verifyFairPlayBinary(input.executablePath);
   const child: ChildProcess = spawn(input.executablePath, ["--stdio"], {
@@ -188,7 +188,7 @@ export async function startFairPlay(input: {
     const fail = (): void => {
       if (settled) return;
       settled = true; clearTimeout(timer); stop();
-      reject(new Error("FairPlay could not initialize. The game was closed; please try again."));
+      reject(new Error("ROTK Anti-Cheat could not initialize. The game was closed; please try again."));
     };
     const timer = setTimeout(fail, 20_000);
     child.once("error", fail);
