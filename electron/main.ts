@@ -92,6 +92,8 @@ import {
   type AttestationProgress,
 } from "./services/integrity-attestation.js";
 import { DiagnosticController } from "./services/diagnostic-controller.js";
+import { createHash } from 'node:crypto';
+import { uploadDiagnostic } from "./services/diagnostic-upload.js";
 import { collectDiagnosticClientContext } from "./services/diagnostic-client-context.js";
 import type { DiagnosticSessionContext } from "./services/diagnostic-reports.js";
 import type { DiagnosticCaptureRequest, DiagnosticExportRequest, DiagnosticState } from "../shared/diagnostics.js";
@@ -180,6 +182,7 @@ async function diagnosticContext(runtime = activeRuntime()): Promise<DiagnosticS
     assetSyncEnabled: config.assetSyncEnabled !== false,
     electronVersion: process.versions.electron, nodeVersion: process.versions.node,
     diagnosticSchemaVersion: 1,
+    diagnosticCredentialHash: activeKey() ? createHash('sha256').update(activeKey()!).digest('hex') : null,
   };
 }
 
@@ -556,7 +559,7 @@ function registerIpc(): void {
     try {
       diagnostics.setDebugEnabled(enabled);
       const config = await configStore.load();
-      await configStore.save({ ...config, debugSessionEnabled: enabled });
+      await configStore.save({ ...config, debugSessionEnabled: enabled, diagnosticUploadConsent: 1 });
     } catch {
       diagnostics.setDebugEnabled(previous);
       return { ok: false, error: diagnosticCopy().failed };
@@ -1179,16 +1182,20 @@ async function initialize(): Promise<void> {
   diagnostics = new DiagnosticController({ directory: join(app.getPath("userData"), "diagnostics"),
     helperPath: resolveBundledDiagnosticsPath(), knownSecrets: () => Object.values(playerKeys).filter((key): key is string => typeof key === "string"),
     frameTimesPath: join(dirname(resolveBundledDiagnosticsPath()), "PresentMon.exe"),
-    exportDirectory: join(app.getPath("downloads"), "ROTK-Rapports"),
+    uploadSession: async (id, context) => {
+      if (!isServerId(context.serverId) || !isPlayerRole(context.role)) throw new Error('Invalid diagnostic profile');
+      const key = playerKeys[launchProfileId(context.serverId, context.role)];
+      if (!key || createHash('sha256').update(key).digest('hex') !== context.diagnosticCredentialHash) throw new Error('Diagnostic account changed');
+      return uploadDiagnostic(await diagnostics.reports.prepareUpload(id), runtimeConfigFor(context.serverId).websiteOrigin, key);
+    },
     collectClientContext: async (context) => collectDiagnosticClientContext({ installationRoot: context.installationRoot,
       assetSyncEnabled: context.assetSyncEnabled === true, assetPackVersion: context.assetPackVersion,
       assetState: await assetSync.readState().catch(() => null) }),
     onDebugChange: () => { void broadcastSnapshot(); },
-    onDebugReport: (path) => shell.showItemInFolder(path),
     onChange: (state) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC_CHANNELS.diagnosticsChanged, state);
     } });
-  await diagnostics.initialize(config.diagnosticCaptureEnabled ?? true, config.debugSessionEnabled ?? false).catch(() => undefined);
+  await diagnostics.initialize(config.diagnosticCaptureEnabled ?? true, config.diagnosticUploadConsent === 1 && config.debugSessionEnabled === true).catch(() => undefined);
   registerIpc();
   mainWindow = createWindow();
   updates = await updateFeed.getLatest();

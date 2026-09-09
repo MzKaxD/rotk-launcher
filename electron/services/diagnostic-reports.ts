@@ -8,6 +8,7 @@ import { createInterface } from 'node:readline';
 import * as yazl from 'yazl';
 import type { DiagnosticCaptureStatus, DiagnosticReportKind, DiagnosticReportSummary } from '../../shared/diagnostics.js';
 import { redactDiagnosticText, sanitizeDiagnosticValue } from './diagnostic-redaction.js';
+import type { PreparedUpload } from './diagnostic-upload.js';
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const FILE_LIMIT = 2 * 1024 * 1024;
@@ -654,6 +655,57 @@ export class DiagnosticReportService {
         zipStream.destroy(); output.destroy(); await completed.catch(() => undefined);
         await rm(temporary, { force: true }).catch(() => undefined); throw error;
       }
+    });
+  }
+  /** Frozen, bounded evidence for private upload. Never send private session.json or an archive. */
+  async prepareUpload(id: string): Promise<PreparedUpload> {
+    return this.serial(id, async () => {
+      const record = this.require(id), dir = this.getDirectory(id), uploadDir = join(dir, 'upload');
+      if (!record.summary.endedAt || !record.collectionCompletedAt) throw new Error('Session is not finalized');
+      await mkdir(uploadDir, { recursive: true });
+      if ((await lstat(uploadDir)).isSymbolicLink()) throw new Error('Unsafe upload directory');
+      const manifestPath = join(uploadDir, 'manifest.json');
+      if (await lstat(manifestPath).then(() => true, () => false)) {
+        if ((await safeFile(manifestPath, dir)).size > 24576) throw new Error('Invalid upload manifest');
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as PreparedUpload['manifest'];
+        if (manifest.localId !== id || !Array.isArray(manifest.files) || manifest.files.length > 64) throw new Error('Invalid upload manifest');
+        const paths: string[] = [];
+        for (let index = 0; index < manifest.files.length; index++) {
+          const path = join(uploadDir, `${index}.data`), file = manifest.files[index];
+          const info = await safeFile(path, dir);
+          if (info.size !== file.bytes || info.size > 32 * 1024 ** 2) throw new Error('Upload evidence changed');
+          const hash = createHash('sha256'); for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
+          if (hash.digest('hex') !== file.sha256) throw new Error('Upload evidence changed'); paths.push(path);
+        }
+        return { manifest, paths };
+      }
+      const manifest: PreparedUpload['manifest'] = { schemaVersion: 1, localId: id, launcherVersion: record.summary.launcherVersion,
+        startedAt: record.summary.startedAt, endedAt: record.summary.endedAt, files: [] };
+      const paths: string[] = [], omissions: { name: string; reason: string }[] = []; let total = 0;
+      const names = [...new Set(['report.json', ...(Array.isArray(record.context.collectedFiles) ? record.context.collectedFiles as string[] : [])])];
+      const sources = names.filter(name => /^[A-Za-z0-9][A-Za-z0-9_.-]{0,119}$/.test(name) && !name.includes('..'))
+        .map(name => ({ name, path: join(dir, 'collected', name), kind: 'text' as 'text' | 'dump' }));
+      sources.push(...(await this.dumps(id)).map(dump => ({ name: dump.name, path: dump.path, kind: 'dump' as const })));
+      for (const source of sources) {
+        try {
+          if (!/\.(txt|log|json|jsonl|xml|dmp)(\.\d{1,3})?$/i.test(source.name) || source.name.length > 120 || source.name.includes('..')) throw new Error('name_excluded');
+          const info = await safeFile(source.path, dir);
+          const limit = (source.kind === 'dump' ? 32 : 16) * 1024 ** 2;
+          if (info.size > limit || manifest.files.length >= 63 || total + info.size > 95 * 1024 ** 2) throw new Error('upload_size_limit');
+          let data = await readFile(source.path);
+          if (data.length > limit) throw new Error('source_grew');
+          if (source.kind === 'text') data = Buffer.from(redactDiagnosticText(data.toString('utf8'), this.secrets()));
+          if (data.length > limit || total + data.length > 95 * 1024 ** 2) throw new Error('upload_size_limit');
+          const path = join(uploadDir, `${paths.length}.data`); await writeFile(path, data);
+          paths.push(path); manifest.files.push({ name: source.name, kind: source.kind, bytes: data.length, sha256: createHash('sha256').update(data).digest('hex') }); total += data.length;
+        } catch { omissions.push({ name: source.name, reason: 'unavailable_or_upload_limit' }); }
+      }
+      const notes = Buffer.from(JSON.stringify({ schemaVersion: 1, omissions, untrustedClientEvidence: true,
+        privacy: 'Text is redacted; binary dumps contain unredacted process memory and remain quarantined.',
+        limits: { files: 64, textMiB: 16, dumpMiB: 32, reportMiB: 96 } }));
+      const path = join(uploadDir, `${paths.length}.data`); await writeFile(path, notes); paths.push(path);
+      manifest.files.push({ name: 'upload-coverage.json', kind: 'text', bytes: notes.length, sha256: createHash('sha256').update(notes).digest('hex') });
+      await atomicJson(manifestPath, manifest); return { manifest, paths };
     });
   }
   private async retention(protectedId?: string): Promise<void> {

@@ -59,12 +59,31 @@ export class DiagnosticController {
     collectClientContext?: (context: DiagnosticSessionContext) => Promise<Record<string, unknown>>;
     onDebugChange?: () => void;
     onDebugReport?: (path: string) => void;
+    uploadSession?: (id: string, context: DiagnosticSessionContext) => Promise<string>;
   }) {
     this.reports = new DiagnosticReportService({ directory: options.directory, knownSecrets: options.knownSecrets, onChange: () => this.changed() });
   }
 
   async initialize(enabled: boolean, debugEnabled = false): Promise<void> {
     this.enabled = enabled; this.debug.enabled = debugEnabled; await this.reports.initialize();
+    if (this.options.uploadSession) {
+      if (!debugEnabled) return;
+      for (const candidate of await this.reports.listReports()) {
+        if (!candidate.endedAt || candidate.kind === 'manual') continue;
+        const record = await this.reports.getReport(candidate.id);
+        if (record.context.diagnosticUploadConsent !== 1) continue;
+        if (typeof record.context.debugRemoteReportId === 'string') {
+          this.debug = { ...this.debug, status: 'ready', fileName: record.context.debugRemoteReportId, error: null }; break;
+        }
+        this.debug.status = 'preparing';
+        // Network recovery must not block opening the launcher window.
+        void this.exportDebugSession(candidate.id).catch(() => {
+          this.debug.status = 'error'; this.debug.error = 'debug-upload-failed'; this.changed();
+        });
+        break;
+      }
+      return;
+    }
     // Recover the latest opted-in session if the launcher or Windows stopped
     // before its archive was created. Already exported sessions are not repeated.
     const latest = (await this.reports.listReports()).find((report) => report.kind !== "manual");
@@ -103,7 +122,8 @@ export class DiagnosticController {
   async beginLaunch(context: DiagnosticSessionContext): Promise<{ id: string; hooks: GameLaunchDiagnostics }> {
     if (this.active) throw new Error("A game diagnostic session is still being finalized");
     const debug = this.debug.enabled;
-    const created = await this.reports.beginSession({ ...context, debugSessionEnabled: debug }).catch((error) => {
+    const created = await this.reports.beginSession({ ...context, debugSessionEnabled: debug,
+      diagnosticUploadConsent: debug && this.options.uploadSession ? 1 : 0 }).catch((error) => {
       if (debug) { this.debug.status = "error"; this.debug.error = "debug-start-failed"; this.changed(); }
       throw error;
     });
@@ -231,6 +251,14 @@ export class DiagnosticController {
   }
 
   private async exportDebugSession(id: string): Promise<void> {
+    if (this.options.uploadSession) {
+      const report = await this.reports.getReport(id);
+      if (report.context.diagnosticUploadConsent !== 1) throw new Error('Upload consent is missing');
+      this.debug.status = 'preparing'; this.changed();
+      const remoteId = await this.options.uploadSession(id, report.context);
+      await this.reports.updateSession(id, { debugRemoteReportId: remoteId, debugUploadedAt: new Date().toISOString() });
+      this.debug = { ...this.debug, status: 'ready', fileName: remoteId, error: null }; this.changed(); return;
+    }
     if (!this.options.exportDirectory) throw new Error("Debug export directory is unavailable");
     await mkdir(this.options.exportDirectory, { recursive: true });
     const report = await this.reports.getReport(id);

@@ -26,6 +26,8 @@ export interface LauncherConfig {
   diagnosticCaptureEnabled?: boolean;
   /** Optional full-session performance recording; off until the player enables it. */
   debugSessionEnabled?: boolean;
+  /** Versioned consent to private upload, including quarantined memory dumps. */
+  diagnosticUploadConsent?: 1;
   /**
    * Selected ROTK server. Absent means GAME 2: a launcher that never chose
    * must not silently connect to the test infrastructure. The single client
@@ -67,6 +69,7 @@ function isValidConfig(value: unknown): value is LauncherConfig {
     (candidate.assetSyncEnabled === undefined || typeof candidate.assetSyncEnabled === "boolean") &&
     (candidate.diagnosticCaptureEnabled === undefined || typeof candidate.diagnosticCaptureEnabled === "boolean") &&
     (candidate.debugSessionEnabled === undefined || typeof candidate.debugSessionEnabled === "boolean") &&
+    (candidate.diagnosticUploadConsent === undefined || candidate.diagnosticUploadConsent === 1) &&
     (candidate.serverId === undefined || isServerId(candidate.serverId)) &&
     (candidate.role === undefined || isPlayerRole(candidate.role))
   );
@@ -78,6 +81,7 @@ function withoutLegacyIdentity(value: LauncherConfig): LauncherConfig {
   if (value.assetSyncEnabled !== undefined) next.assetSyncEnabled = value.assetSyncEnabled;
   if (value.diagnosticCaptureEnabled !== undefined) next.diagnosticCaptureEnabled = value.diagnosticCaptureEnabled;
   if (value.debugSessionEnabled !== undefined) next.debugSessionEnabled = value.debugSessionEnabled;
+  if (value.diagnosticUploadConsent === 1) next.diagnosticUploadConsent = 1;
   if (value.serverId !== undefined) next.serverId = value.serverId;
   if (value.role !== undefined) next.role = value.role;
   return next;

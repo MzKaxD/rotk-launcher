@@ -221,6 +221,7 @@ export function InstallPanel({
               {debugStatus && (
                 <p className={`debug-session-settings__status${debugError ? " is-error" : ""}`} role={debugError ? "alert" : "status"}>
                   {debugStatus}
+                  {debugSession?.status === 'ready' && debugSession.fileName && <><br /><code>{debugSession.fileName}</code></>}
                 </p>
               )}
             </section>

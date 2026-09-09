@@ -1,5 +1,23 @@
 # ROTK Launcher
 
+## Private Debug reports (2.0.8)
+
+In Settings → Debug, **Debug and send session reports** is an explicit opt-in to
+private uploads after the game exits. A previous local-only Debug preference does
+not authorize transmission. The launcher sends bounded, redacted technical text
+and available memory dumps, then displays the server's report reference. It does
+not ask players to send ZIPs. Dumps can contain private data and remain quarantined
+at reception; reports expire after seven days. Disable Debug after testing.
+
+An interrupted transfer keeps its local evidence; restarting the launcher retries
+the latest eligible report when Debug is still enabled. A changed key/account
+blocks that resend. The dedicated receiver authenticates an account with recent
+game activity, not the executable's integrity or the truth of submitted logs.
+
+The developer ZIP-export APIs described in the technical documentation remain
+local tools. They are no longer the player Debug workflow. See
+[`docs/PRIVATE_DIAGNOSTICS.md`](docs/PRIVATE_DIAGNOSTICS.md).
+
 Launcher Windows open source de **Return of the King (ROTK)**. Il utilise directement un client H1Z1 déjà isolé ou prépare une copie dédiée depuis Steam, affiche les deux dernières actualités publiées sur [rotk.app](https://rotk.app/updates), puis lance le jeu avec la configuration réseau ROTK.
 
 > [!IMPORTANT]
