@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LauncherSnapshot, OperationResult } from "../shared/contracts";
 import { GlobalActivityCenter } from "./components/GlobalActivityCenter";
-import { CrashReportFeedback, useCrashReport } from "./components/CrashReportFeedback";
 import { InstallPanel } from "./components/InstallPanel";
 import { LauncherFooter } from "./components/LauncherFooter";
 import { NewsCarousel } from "./components/NewsCarousel";
@@ -15,14 +14,13 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<LauncherSnapshot | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [identityOpen, setIdentityOpen] = useState(false);
-  const crashReport = useCrashReport();
   const [busy, setBusy] = useState(false);
   const [transientError, setTransientError] = useState<string | null>(null);
   const [detectAttempted, setDetectAttempted] = useState(false);
   const [debugSessionBusy, setDebugSessionBusy] = useState(false);
   const [debugSessionFailed, setDebugSessionFailed] = useState(false);
   const debugSessionInFlight = useRef(false);
-  const working = busy || crashReport.busy || debugSessionBusy || snapshot?.debugSession?.status === "preparing";
+  const working = busy || debugSessionBusy || snapshot?.debugSession?.status === "preparing";
   const debugSessionLocked = working || snapshot?.gamePid != null
     || snapshot?.phase === "running" || snapshot?.phase === "launching" || snapshot?.phase === "installing"
     || snapshot?.debugSession?.status === "recording"
@@ -150,13 +148,9 @@ export default function App() {
           setSetupOpen(false);
           setIdentityOpen(true);
         }}
-        reportBusy={crashReport.busy}
-        crashButtonRef={crashReport.buttonRef}
-        onReportCrash={() => void crashReport.reportCrash()}
         onSelectLaunchProfile={(serverId, role) =>
           void perform(() => window.rotk.setLaunchProfile(serverId, role))}
       />
-      <CrashReportFeedback feedback={crashReport.feedback} onDismiss={crashReport.dismiss} onRetry={crashReport.retry} />
       <PlayerIdentityPanel
         snapshot={snapshot}
         open={identityOpen}

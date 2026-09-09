@@ -1,12 +1,6 @@
 import type { AppLocale } from "../shared/locale";
 
 export interface DiagnosticsCopy {
-  action: string;
-  preparing: string;
-  ready: string;
-  failed: string;
-  retry: string;
-  close: string;
   debug: {
     title: string;
     enable: string;
@@ -23,12 +17,6 @@ export interface DiagnosticsCopy {
 
 export const DIAGNOSTICS_COPY: Record<AppLocale, DiagnosticsCopy> = {
   en: {
-    action: "My game crashed",
-    preparing: "Preparing your report…",
-    ready: "Your report is ready. Send the ZIP to the admin.",
-    failed: "The report couldn’t be created.",
-    retry: "Try again",
-    close: "Dismiss report message",
     debug: {
       title: "Debug",
       enable: "Record my game session",
@@ -38,17 +26,11 @@ export const DIAGNOSTICS_COPY: Record<AppLocale, DiagnosticsCopy> = {
       recording: "Debug is active. Your game session is being recorded.",
       preparing: "Preparing your report…",
       ready: "Your report is ready. Send the ZIP to the admin.",
-      error: "The report couldn’t be prepared. Use “My game crashed”.",
+      error: "The report couldn’t be prepared. Restart the launcher to try again.",
       settingFailed: "This setting couldn’t be saved. Try again.",
     },
   },
   fr: {
-    action: "J’ai crashé",
-    preparing: "Préparation du rapport…",
-    ready: "Ton rapport est prêt. Envoie le ZIP à l’admin.",
-    failed: "Le rapport n’a pas pu être créé.",
-    retry: "Réessayer",
-    close: "Fermer le message du rapport",
     debug: {
       title: "Debug",
       enable: "Enregistrer ma session de jeu",
@@ -58,7 +40,7 @@ export const DIAGNOSTICS_COPY: Record<AppLocale, DiagnosticsCopy> = {
       recording: "Debug actif. Ta session de jeu est enregistrée.",
       preparing: "Préparation du rapport…",
       ready: "Ton rapport est prêt. Envoie le ZIP à l’admin.",
-      error: "Le rapport n’a pas pu être préparé. Utilise « J’ai crashé ».",
+      error: "Le rapport n’a pas pu être préparé. Relance le launcher pour réessayer.",
       settingFailed: "Ce réglage n’a pas pu être enregistré. Réessaie.",
     },
   },

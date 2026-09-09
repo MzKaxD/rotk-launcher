@@ -576,7 +576,7 @@ export class DiagnosticReportService {
       'Debug JSONL: up to 16 MiB per file (including each rotation separately), summaries up to 64 KiB, separate total budget 66 MiB. Invalid/incomplete JSON rows are omitted and declared in manifest issues.',
       'Text logs are bounded and sanitized. Command lines, environment and credential files are excluded.',
       'Binary memory dumps cannot be sanitized and may contain credentials, private messages or other process memory.',
-      'The crash-report button includes available memory dumps. Developer exports may omit them; consult manifest.json.',
+      'Automatic Debug session reports include available memory dumps. Developer exports may omit them; consult manifest.json.',
       'Reports stay local until the player shares the ZIP. Share memory dumps only with a trusted administrator.',
       'Read manifest.json for included files, SHA-256 hashes, limits, omissions and collection issues.', '',
     ].join('\n'), this.secrets());

@@ -8,55 +8,42 @@ et d’attestation applicables. Valider le paquet exact sur TEST, puis coordonne
 son admission et sa publication. Une simple modification de `package.json` ne
 met pas à jour cette politique serveur.
 
-## Joueur : après un crash
+## Joueur : enregistrer une session Debug
 
-Ouvre le launcher et clique sur **J’ai crashé**, en bas de la fenêtre. Le launcher
-rassemble les diagnostics disponibles et prépare le ZIP. Si la collecte ou
-l’archive prend du temps, un message indique que la préparation est en cours.
-
-Quand le fichier est prêt, **l’Explorateur Windows s’ouvre avec le ZIP sélectionné**.
-Envoie ce fichier à l’administrateur par le canal privé convenu. C’est la seule
-action à effectuer dans le launcher : aucun formulaire ou choix de fichier n’est
-nécessaire.
-
-Le ZIP est enregistré automatiquement dans **Téléchargements → ROTK-Rapports**,
-dans le dossier Téléchargements configuré sur ce PC. Son nom suit la forme
-`ROTK-crash-DATE-ID8-unique.zip` : la date, un identifiant abrégé et un suffixe
-unique distinguent les exports. Tu peux y retrouver le fichier plus tard.
-
-Le launcher **n’envoie aucun rapport automatiquement**. Il crée un fichier local
-contenant les journaux, les informations de session et les dumps disponibles.
-Les dumps peuvent contenir des données de session : partage le ZIP uniquement
-avec un administrateur de confiance. Si une erreur empêche la création du ZIP,
-le launcher l’indique ; il ne faut pas considérer un fichier temporaire comme un
-rapport terminé.
-
-Lors de l’envoi à l’administrateur, tu peux ajouter l’heure approximative et
-l’action effectuée : par exemple « Combat Training, changement d’arme à 21 h 34
-heure de Paris, retour au bureau ». Ces précisions aident à retrouver l’incident.
-Un rapport sans dump reste utile ; il ne faut pas recréer artificiellement un
-crash pour obtenir un fichier.
-
-## Joueur : enregistrer une session avec des stutters
+Pour examiner des saccades ou un crash, active Debug **avant de jouer**. Le
+parcours joueur utilise uniquement cette case ; aucun bouton de déclaration
+manuelle de crash n’est proposé.
 
 1. Avant de lancer le jeu, ouvre **Paramètres → Debug** et coche
    **Enregistrer ma session de jeu**.
 2. Lance le jeu et reproduis le problème normalement.
 3. À la fermeture du jeu, même sans crash, le launcher prépare automatiquement
    le ZIP et ouvre **Téléchargements → ROTK-Rapports** avec le fichier sélectionné.
-   Envoie ce ZIP à l'administrateur.
+   Envoie ce ZIP à l’administrateur par le canal privé convenu. Aucun formulaire
+   ou choix de destination n’est nécessaire.
 
-Le nom est `ROTK-session-DATE-ID8-unique.zip`. La case est désactivée par défaut,
+Le nom est `ROTK-session-DATE-ID8-unique.zip` : la date, un identifiant abrégé et
+un suffixe unique distinguent les exports. Le fichier reste dans le dossier
+Téléchargements configuré sur ce PC. La case est désactivée par défaut,
 mémorisée pour les prochaines parties et verrouillée pendant la session. Décoche-la
 après tes essais si tu ne souhaites plus enregistrer les parties suivantes.
 Il s'agit d'un enregistrement technique, sans vidéo, microphone ou saisie clavier.
 La fenêtre du launcher peut être fermée : son processus reste actif pendant le jeu
 et jusqu'à la fin de la préparation. Si Windows ou le launcher s'arrête brutalement,
-la dernière session Debug interrompue est récupérée au redémarrage si ses fichiers
-existent encore ; le rapport identifie cette interruption.
+la dernière session Debug non exportée est reprise au redémarrage à partir des
+fichiers encore présents ; le rapport identifie une éventuelle interruption.
 
-Si la préparation échoue, les preuves déjà collectées restent accessibles par
-**J'ai crashé**. Aucun rapport n'est envoyé automatiquement.
+Si la préparation du ZIP échoue, le launcher l’indique et conserve les preuves
+déjà collectées localement. **Relance le launcher** : il retente l’export de la
+dernière session Debug non exportée. Un fichier temporaire n’est pas un rapport
+terminé. Le launcher **n’envoie aucun rapport automatiquement**.
+
+Lors de l’envoi à l’administrateur, ajoute si possible l’heure approximative et
+l’action effectuée : par exemple « Combat Training, changement d’arme à 21 h 34
+heure de Paris, retour au bureau ». Un rapport sans dump reste utile ; il ne faut
+pas recréer artificiellement un crash pour obtenir un fichier. Les dumps peuvent
+contenir des données de session : partage le ZIP uniquement avec un administrateur
+de confiance.
 
 ## Ce que contient le ZIP
 
@@ -66,7 +53,7 @@ La présence de chaque pièce dépend de ce qui était disponible pour la sessio
 | Fichier | Utilité |
 | --- | --- |
 | `README.txt` | Résumé lisible : identifiant du rapport, début UTC, décalage horaire, version, serveur, joueur, classification et code de sortie. |
-| `NOTES.txt` | Mention de la déclaration de crash par le joueur. Elle ne remplace pas les preuves d’une exception native. |
+| `NOTES.txt` | Description de l’export automatique de la session Debug. Ce texte ne remplace pas les preuves d’une exception native. |
 | `report.json` | Schéma version 1 : `summary`, `context`, `timezoneOffsetMinutes`, `exit`, `issues`. |
 | `manifest.json` | Identifiant et date d’export, fichiers avec taille et SHA-256, limites, problèmes de collecte et omissions, indicateur `containsUnredactedProcessMemory`. Le manifeste ne contient pas sa propre empreinte. |
 | `events.jsonl` | Chronologie du launcher pour cette session : démarrage du jeu, sortie, demande de capture, portions de stdout/stderr, erreurs du launcher enregistrées. |
@@ -75,9 +62,9 @@ La présence de chaque pièce dépend de ce qui était disponible pour la sessio
 | `performance.jsonl` et éventuellement `.1` | En mode Debug : mesures du processus environ chaque seconde, dates UTC et horloge monotone QPC. |
 | `frame-times-summary.json` | Disponibilité de PresentMon, raisons d'échec éventuelles, statistiques des intervalles de présentation par swapchain et pics. |
 | `frame-times.jsonl` et éventuellement `.1` | Événements de présentation réellement observés pour ce PID, avec QPC et données numériques sélectionnées. |
-| `client-game-KillFeed-….log`, `client-game-GFxWrap-….log` et autres journaux reconnus | Journaux du dossier `Logs` du jeu : killfeed, Scaleform/GFx, UI, échecs de chargement d'assets et erreurs de packs, lorsqu'ils existent et ont été écrits pendant cette session. |
+| `client-game-KillFeed.log-….log`, `client-game-GFxWrap.log-….log` et autres journaux reconnus | Journaux du dossier `Logs` du jeu : killfeed, Scaleform/GFx, UI, échecs de chargement d'assets et erreurs de packs, lorsqu'ils existent et ont été écrits pendant cette session. |
 | `client-local-….log`, `client-failure-….log`, `client-native-….log` et extensions similaires | Extraits des journaux autorisés du jeu, associés à cette session. Le suffixe évite d’exposer le chemin original. |
-| `dumps/crash-….dmp` | Minidump d’une exception fatale observée, si la capture a réussi. Les dumps disponibles sont inclus dans le ZIP créé par le bouton. |
+| `dumps/crash-….dmp` | Minidump d’une exception fatale observée, si la capture a réussi. Les dumps disponibles sont inclus dans le ZIP automatique de la session. |
 | `dumps/snapshot-….dmp`, éventuellement `-full.dmp` | Capture de l’état du processus lorsqu’elle est disponible. Le suffixe `full` identifie une capture mémoire complète issue du mécanisme technique décrit plus bas. |
 
 Dans `report.json`, consulter notamment :
@@ -86,8 +73,6 @@ Dans `report.json`, consulter notamment :
   `playerName`, `kind`, `status`, `exitCodeHex`, `captureStatus`, `warnings` ;
 - `context.pid`, `processStartedAt`, `processEndedAt`, `steamId`, `serverId`,
   `role`, `assetPackVersion`, lorsqu’ils sont disponibles ;
-- `context.playerReportedCrash` et `playerReportedAt` : déclaration du joueur et
-  heure UTC du clic. La classification et le code de sortie observés sont conservés ;
 - `context.binaries` : taille, SHA-256 et date de modification des exécutables et
   DLL ciblés ; une entrée `unavailable` n’est pas une preuve de modification ;
 - `context.debugSessionEnabled` et `context.clientContext` : mode de cette session,
@@ -101,6 +86,11 @@ Dans `report.json`, consulter notamment :
   retrouvés dans la fenêtre de la session ;
 - `exit.code`, `unsignedCode`, `hex`, `name`, `signal`, `error` et `issues` pour
   distinguer une exception, un échec de lancement et une information absente.
+
+Les anciens rapports ou exports techniques peuvent aussi porter
+`context.playerReportedCrash` et `playerReportedAt`. Ces champs décrivent une
+déclaration manuelle ; ils ne sont pas nécessaires au parcours Debug automatique
+et ne remplacent pas la classification ou le code de sortie observés.
 
 Les journaux client sont bornés et sélectionnés ; il ne s’agit pas de tous les
 fichiers du PC. Les portions antérieures au lancement sont normalement exclues.
@@ -247,11 +237,14 @@ peuvent aider à distinguer une attente stable d’un traitement lent.
 
 La capture automatique utilise un **minidump**, jamais un dump complet. La
 collecte des exceptions, registres, modules et mesures mémoire/CPU reste active
-dans le mécanisme de diagnostic. Le parcours joueur propose **J’ai crashé** et la
-case **Debug** pour les prochaines sessions ; il ne demande aucune sélection de dump complet.
+dans le mécanisme de diagnostic. Le parcours joueur propose uniquement la case
+**Debug** pour les prochaines sessions, puis l’export automatique à la fermeture
+du jeu ; il ne demande aucune sélection de dump complet.
 
-Le backend et le helper conservent une commande de **dump mémoire complet** pour
-une intervention technique explicite. Elle peut être utile pour examiner un
+Les API backend de déclaration, capture et export manuels restent disponibles
+pour les outils et tests techniques ; elles ne correspondent pas à des commandes
+de l’interface joueur. Le helper conserve une commande de **dump mémoire complet**
+pour une intervention technique explicite. Elle peut être utile pour examiner un
 blocage ou une corruption, mais peut peser plusieurs Go, prendre plus longtemps
 et perturber ou suspendre le processus pendant la collecte. Le helper vérifie que
 l’espace disponible couvre la mémoire engagée du processus plus 512 Mio. Après
@@ -271,7 +264,7 @@ toute chaîne arbitraire écrite par le jeu : relire le contexte avant partage.
 **Les dumps binaires ne sont pas masqués.** Un minidump comme un dump complet
 peut contenir des données de session, identifiants, messages ou autres morceaux
 de mémoire du jeu. Les partager uniquement avec un administrateur de confiance,
-par un canal privé. Le ZIP créé par **J’ai crashé** inclut les dumps disponibles,
+par un canal privé. Le ZIP automatique de session Debug inclut les dumps disponibles,
 y compris un dump complet déjà présent. Aucun rapport n’est transmis
 automatiquement. Le dossier interne du launcher peut aussi contenir des
 métadonnées de travail et des chemins locaux ; utiliser le ZIP préparé pour le
@@ -303,8 +296,8 @@ dont deux complets au maximum, et deux dumps fatals.
 Le nettoyage local vise **10 rapports récents, 7 jours et 5 Gio**. Les sessions en
 cours/en collecte, le rapport protégé par l’opération et le dernier rapport
 terminé sont conservés. Ce sont des objectifs de rétention, **pas un quota disque
-strict** : un dump complet protégé peut dépasser 5 Gio. Exporter les rapports
-importants avec **J’ai crashé** avant le nettoyage. Les ZIP créés dans
+strict** : un dump complet protégé peut dépasser 5 Gio. Conserver les ZIP des
+sessions importantes dans un emplacement adapté. Les ZIP créés dans
 **Téléchargements → ROTK-Rapports** ne font pas partie de cette rétention locale.
 
 Le helper suit uniquement le `H1Z1.exe` lancé par ce launcher. Il n’élève pas les

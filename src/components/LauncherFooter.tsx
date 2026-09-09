@@ -1,4 +1,3 @@
-import type { Ref } from "react";
 import { CircleAlert, KeyRound, Play, RotateCcw, Settings2 } from "lucide-react";
 import type { LauncherSnapshot } from "../../shared/contracts";
 import type { PlayerRole, ServerId } from "../../shared/launch-profile";
@@ -11,9 +10,6 @@ interface LauncherFooterProps {
   onPrimary(): void;
   onSetup(): void;
   onIdentity(): void;
-  reportBusy: boolean;
-  crashButtonRef: Ref<HTMLButtonElement>;
-  onReportCrash(): void;
   onSelectLaunchProfile(serverId: ServerId, role: PlayerRole): void;
 }
 
@@ -72,9 +68,6 @@ export function LauncherFooter({
   onPrimary,
   onSetup,
   onIdentity,
-  reportBusy,
-  crashButtonRef,
-  onReportCrash,
   onSelectLaunchProfile,
 }: LauncherFooterProps) {
   const { copy } = useI18n();
@@ -115,9 +108,6 @@ export function LauncherFooter({
         </button>
         <button type="button" onClick={onSetup} disabled={installing} aria-label={copy.footer.settings} title={copy.footer.settings}>
           {snapshot.error ? <CircleAlert size={20} /> : snapshot.installationRoot ? <Settings2 size={20} /> : <RotateCcw size={20} />}
-        </button>
-        <button ref={crashButtonRef} type="button" className="footer-tools__reports" onClick={reportBusy ? undefined : onReportCrash} aria-disabled={reportBusy} aria-busy={reportBusy}>
-          {copy.diagnostics.action}
         </button>
       </div>
 
