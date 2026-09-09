@@ -34,6 +34,7 @@ static uintptr_t remote_breakpoint;
 static BOOL waiting_attach_breakpoint = TRUE;
 static unsigned module_events, thread_events;
 static BOOL debug_enabled;
+static BOOL counters_only;
 
 static const wchar_t *basename_w(const wchar_t *path) {
     const wchar_t *name = path;
@@ -393,6 +394,11 @@ static int watch_counters_only(void) {
 }
 
 static int watch(void) {
+    if (counters_only) {
+        emit("observer-ready", ",\"mode\":\"passive\",\"debuggerAttached\":false");
+        emit("attach-failed", ",\"reason\":\"passive-capture-no-exception-debugger\"");
+        return watch_counters_only();
+    }
     BOOL present = FALSE;
     if (!CheckRemoteDebuggerPresent(target_process, &present) || present) {
         emit("attach-failed", ",\"reason\":\"debugger-present-or-unavailable\",\"win32Error\":%lu", (unsigned long)GetLastError());
@@ -507,6 +513,7 @@ int wmain(int argc, wchar_t **argv) {
         else if (wcscmp(argv[i], L"--snapshot") == 0) snapshot_mode = TRUE;
         else if (wcscmp(argv[i], L"--full") == 0) full = TRUE;
         else if (wcscmp(argv[i], L"--debug") == 0) debug_enabled = TRUE;
+        else if (wcscmp(argv[i], L"--counters-only") == 0) counters_only = TRUE;
         else if (wcscmp(argv[i], L"--pid") == 0 && i + 1 < argc) {
             wchar_t *end = NULL;
             unsigned long long parsed = wcstoull(argv[++i], &end, 10);
@@ -515,11 +522,15 @@ int wmain(int argc, wchar_t **argv) {
         } else if (wcscmp(argv[i], L"--output") == 0 && i + 1 < argc) output = argv[++i];
         else return 2;
     }
-    if (watch_mode == snapshot_mode || !output || !target_pid || (watch_mode && full) || (debug_enabled && !watch_mode)) {
+    if (watch_mode == snapshot_mode || !output || !target_pid || (watch_mode && full) || (debug_enabled && !watch_mode) || (counters_only && !watch_mode)) {
         fprintf(stderr, "Usage: ROTK.Diagnostics.exe (--watch [--debug] | --snapshot [--full]) --pid PID --output DIRECTORY\n");
         return 2;
     }
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+#ifndef ROTK_DIAGNOSTICS_TEST
+    /* Production must never attach to the game's protected process. */
+    if (watch_mode) counters_only = TRUE;
+#endif
     SetConsoleCtrlHandler(console_control, TRUE);
     started = GetTickCount64();
     if (!validate_target()) { if (target_process) CloseHandle(target_process); return 3; }

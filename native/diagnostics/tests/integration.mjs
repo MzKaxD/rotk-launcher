@@ -1,7 +1,7 @@
 // Real Windows debugging API tests. Only the dedicated fixture is exercised.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdir, readFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir, copyFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -351,3 +351,45 @@ test('debug retention rotates bounded logs and sampling time limit leaves crash 
   const persisted = JSON.parse(await readFile(path.join(directory, 'performance-summary.json'), 'utf8'));
   assert.equal(persisted.reason, 'duration-limit');
 });
+
+for (const debug of [false, true]) {
+  test(`launcher passive capture never attaches a debugger (Debug=${debug})`, async t => {
+    const target = await fixture(t);
+    const directory = path.join(runRoot, `passive-${debug}`);
+    const helper = processWithLines(helperPath, ['--watch', '--counters-only', '--pid', String(target.child.pid), '--output', directory, ...(debug ? ['--debug'] : [])]);
+    t.after(() => helper.cleanup());
+    await helper.wait(event => event.event === 'observer-ready' && event.mode === 'passive' && event.debuggerAttached === false);
+    target.command('ping');
+    await target.wait(line => line === 'alive:debugger=0');
+    if (debug) await helper.wait(event => event.event === 'performance-sample');
+    assert.equal(helper.lines.some(event => event.event === 'attached' || event.event === 'attach-breakpoint'), false);
+    helper.command('stop');
+    assert.equal((await helper.exit).code, 0);
+    assert.equal(helper.lines.some(event => event.event === 'dump-written'), false);
+    target.command('exit');
+    assert.equal((await target.exit).code, 0);
+  });
+}
+
+for (const debug of [false, true]) {
+  test(`production watch defaults to passive without relying on launcher flag (Debug=${debug})`, async t => {
+    const directory = path.join(runRoot, `production-passive-${debug}`);
+    await mkdir(directory, { recursive: true });
+    const targetPath = path.join(directory, 'H1Z1.exe');
+    await copyFile(fixturePath, targetPath);
+    const target = processWithLines(targetPath);
+    t.after(() => target.cleanup());
+    await target.wait(line => line === 'ready');
+    const helper = processWithLines(productionHelper, ['--watch', '--pid', String(target.child.pid), '--output', directory, ...(debug ? ['--debug'] : [])]);
+    t.after(() => helper.cleanup());
+    await helper.wait(event => event.event === 'observer-ready' && event.mode === 'passive');
+    target.command('ping');
+    await target.wait(line => line === 'alive:debugger=0');
+    if (debug) await helper.wait(event => event.event === 'performance-sample');
+    assert.equal(helper.lines.some(event => event.event === 'attached'), false);
+    helper.command('stop');
+    assert.equal((await helper.exit).code, 0);
+    target.command('exit');
+    assert.equal((await target.exit).code, 0);
+  });
+}

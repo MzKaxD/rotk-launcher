@@ -33,7 +33,7 @@ export class DiagnosticObserver {
       }
       if (this.stopping) { this.rejectPending("Diagnostic capture was stopped"); return; }
       this.mayTerminateHelper = Boolean(snapshotMode);
-      const child = spawn(this.options.executable, [snapshotMode ? "--snapshot" : "--watch", "--pid", String(this.options.pid), "--output", this.options.directory,
+      const child = spawn(this.options.executable, [snapshotMode ? "--snapshot" : "--watch", ...(!snapshotMode ? ["--counters-only"] : []), "--pid", String(this.options.pid), "--output", this.options.directory,
         ...(snapshotMode === "full" ? ["--full"] : []), ...(!snapshotMode && this.options.debug ? ["--debug"] : [])], {
         windowsHide: true, shell: false, stdio: ["pipe", "pipe", "pipe"],
       });
@@ -58,6 +58,11 @@ export class DiagnosticObserver {
           try {
             const event = JSON.parse(line) as NativeDiagnosticEvent;
             if (!event || typeof event.event !== "string") continue;
+            if (event.event === "observer-ready" && event.pid === this.options.pid
+              && event.mode === "passive" && event.debuggerAttached === false) {
+              this.attached = false;
+              this.mayTerminateHelper = true;
+            }
             if (event.event === "attached") { this.attached = true; this.mayTerminateHelper = event.killOnExit === false; }
             if (event.event === "attach-failed") this.attached = false;
             if (this.options.debug && event.event === "performance-status" && event.pid === this.options.pid

@@ -46,7 +46,7 @@ describe('native observer lifecycle and protocol', () => {
   it('validates integrity and launches only the hidden helper with the exact game PID', async () => {
     const f = await fixture();
     await f.observer.start();
-    expect(mocks.spawn).toHaveBeenCalledWith(f.executable, ['--watch', '--pid', '4242', '--output', f.directory],
+    expect(mocks.spawn).toHaveBeenCalledWith(f.executable, ['--watch', '--counters-only', '--pid', '4242', '--output', f.directory],
       { windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
     expect(f.observer.isAttached()).toBe(false);
     f.child().event({ event: 'attached', killOnExit: false, pid: 4242 });
@@ -65,7 +65,7 @@ describe('native observer lifecycle and protocol', () => {
 
   it('passes --debug only when debug collection is enabled before watch startup', async () => {
     const f = await fixture(undefined, true); await f.observer.start();
-    expect(mocks.spawn.mock.calls[0]?.[1]).toEqual(['--watch', '--pid', '4242', '--output', f.directory, '--debug']);
+    expect(mocks.spawn.mock.calls[0]?.[1]).toEqual(['--watch', '--counters-only', '--pid', '4242', '--output', f.directory, '--debug']);
     expect(f.observer.isAttached()).toBe(false);
   });
 
