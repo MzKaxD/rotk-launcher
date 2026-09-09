@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, stat } from "node:fs/promises";
-import { join, basename, resolve, sep } from "node:path";
+import { join, basename, dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   app,
@@ -92,6 +92,7 @@ import {
   type AttestationProgress,
 } from "./services/integrity-attestation.js";
 import { DiagnosticController } from "./services/diagnostic-controller.js";
+import { collectDiagnosticClientContext } from "./services/diagnostic-client-context.js";
 import type { DiagnosticSessionContext } from "./services/diagnostic-reports.js";
 import type { DiagnosticCaptureRequest, DiagnosticExportRequest, DiagnosticState } from "../shared/diagnostics.js";
 
@@ -122,6 +123,7 @@ let updateFeed: UpdateFeedService;
 let assetSync: AssetSyncService;
 let launcherUpdate: LauncherUpdateService;
 let diagnostics: DiagnosticController;
+let debugSettingWrite = false;
 const gameLauncher = new GameLauncher();
 const LAUNCHER_UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000;
 let installAbortController: AbortController | null = null;
@@ -175,6 +177,7 @@ async function diagnosticContext(runtime = activeRuntime()): Promise<DiagnosticS
     role: config.role ?? selectedRole, installationRoot: config.installation?.root,
     installId: config.installation?.installId, clientBuildId: config.installation?.clientBuildId,
     logsRoot: join(app.getPath("userData"), "logs"), assetPackVersion: assetSyncPackVersion ?? undefined,
+    assetSyncEnabled: config.assetSyncEnabled !== false,
     electronVersion: process.versions.electron, nodeVersion: process.versions.node,
     diagnosticSchemaVersion: 1,
   };
@@ -185,7 +188,7 @@ function validDiagnosticDescription(value: unknown): value is string {
 }
 
 function diagnosticWorkInProgress(): boolean {
-  return crashReportRequests > 0 || Boolean(diagnostics?.isBusy());
+  return debugSettingWrite || crashReportRequests > 0 || Boolean(diagnostics?.isBusy());
 }
 
 function rawErrorMessage(error: unknown): string {
@@ -448,6 +451,7 @@ async function snapshot(): Promise<LauncherSnapshot> {
     playerIdentity: identitySummary(),
     launcherUpdate: launcherUpdate.state,
     assetSync: assetSyncSummary(),
+    debugSession: diagnostics?.debugState() ?? { enabled: false, status: "idle", fileName: null, error: null },
     integrityCheck: attestationProgress
       ? {
         hashedFiles: attestationProgress.hashedFiles,
@@ -465,6 +469,7 @@ async function snapshot(): Promise<LauncherSnapshot> {
       && configuredRoot !== null
       && activeKey() !== null
       && !gameLauncher.isRunning()
+      && !debugSettingWrite && !diagnosticWorkInProgress()
       // A mandatory update blocks Play until a newer launcher is installed.
       && !updateRequired,
   };
@@ -541,6 +546,27 @@ function operationError<T = undefined>(error: unknown): OperationResult<T> {
 }
 
 function registerIpc(): void {
+  ipcMain.handle(IPC_CHANNELS.setDebugSessionEnabled, trustedHandler(async (_event, enabled: unknown): Promise<OperationResult<LauncherSnapshot>> => {
+    if (typeof enabled !== "boolean") return { ok: false, error: diagnosticCopy().invalid };
+    if (debugSettingWrite || assetSyncRunning || diagnosticWorkInProgress() || gameLauncher.isRunning() || phase === "launching" || phase === "running" || phase === "installing") {
+      return { ok: false, error: diagnosticCopy().settings };
+    }
+    debugSettingWrite = true;
+    const previous = diagnostics.debugState().enabled;
+    try {
+      diagnostics.setDebugEnabled(enabled);
+      const config = await configStore.load();
+      await configStore.save({ ...config, debugSessionEnabled: enabled });
+    } catch {
+      diagnostics.setDebugEnabled(previous);
+      return { ok: false, error: diagnosticCopy().failed };
+    } finally {
+      debugSettingWrite = false;
+      void broadcastSnapshot();
+      if (quitWhenGameExits && !mainWindow && !gameLauncher.isRunning() && !diagnosticWorkInProgress()) app.quit();
+    }
+    return { ok: true, value: await snapshot() };
+  }));
   ipcMain.handle(IPC_CHANNELS.reportCrash, trustedHandler(async (): Promise<OperationResult<{ fileName: string }>> => {
     // Keep the app alive from the click, including the async config read that
     // happens before the controller acquires its own operation lock.
@@ -870,7 +896,7 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC_CHANNELS.play,
     trustedHandler(async (): Promise<OperationResult<{ pid: number }>> => {
-      if (phase !== "ready") return { ok: false, error: MAIN_COPY[currentLocale].clientNotReady };
+      if (phase !== "ready" || debugSettingWrite || diagnosticWorkInProgress()) return { ok: false, error: MAIN_COPY[currentLocale].clientNotReady };
       const selectedKey = activeKey();
       if (!selectedKey) {
         return {
@@ -1152,10 +1178,17 @@ async function initialize(): Promise<void> {
   });
   diagnostics = new DiagnosticController({ directory: join(app.getPath("userData"), "diagnostics"),
     helperPath: resolveBundledDiagnosticsPath(), knownSecrets: () => Object.values(playerKeys).filter((key): key is string => typeof key === "string"),
+    frameTimesPath: join(dirname(resolveBundledDiagnosticsPath()), "PresentMon.exe"),
+    exportDirectory: join(app.getPath("downloads"), "ROTK-Rapports"),
+    collectClientContext: async (context) => collectDiagnosticClientContext({ installationRoot: context.installationRoot,
+      assetSyncEnabled: context.assetSyncEnabled === true, assetPackVersion: context.assetPackVersion,
+      assetState: await assetSync.readState().catch(() => null) }),
+    onDebugChange: () => { void broadcastSnapshot(); },
+    onDebugReport: (path) => shell.showItemInFolder(path),
     onChange: (state) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC_CHANNELS.diagnosticsChanged, state);
     } });
-  await diagnostics.initialize(config.diagnosticCaptureEnabled ?? true).catch(() => undefined);
+  await diagnostics.initialize(config.diagnosticCaptureEnabled ?? true, config.debugSessionEnabled ?? false).catch(() => undefined);
   registerIpc();
   mainWindow = createWindow();
   updates = await updateFeed.getLatest();

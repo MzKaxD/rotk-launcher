@@ -33,6 +33,7 @@ static unsigned exception_types;
 static uintptr_t remote_breakpoint;
 static BOOL waiting_attach_breakpoint = TRUE;
 static unsigned module_events, thread_events;
+static BOOL debug_enabled;
 
 static const wchar_t *basename_w(const wchar_t *path) {
     const wchar_t *name = path;
@@ -66,17 +67,21 @@ static void rotate_journal(void) {
 }
 
 static void emit(const char *event, const char *format, ...) {
-    char payload[12000], line[13000];
+    char payload[12000], line[13000], debug_time[128] = {0};
     va_list args;
     va_start(args, format);
     vsnprintf(payload, sizeof(payload), format, args);
     va_end(args);
     SYSTEMTIME time;
     GetSystemTime(&time);
+    if (debug_enabled) {
+        LARGE_INTEGER qpc; QueryPerformanceCounter(&qpc);
+        snprintf(debug_time, sizeof(debug_time), ",\"monotonicMs\":%llu,\"qpc\":\"%lld\"", GetTickCount64() - started, qpc.QuadPart);
+    }
     int len = snprintf(line, sizeof(line),
-        "{\"event\":\"%s\",\"at\":\"%04u-%02u-%02uT%02u:%02u:%02u.%03uZ\",\"pid\":%lu%s}\n",
+        "{\"event\":\"%s\",\"at\":\"%04u-%02u-%02uT%02u:%02u:%02u.%03uZ\",\"pid\":%lu%s%s}\n",
         event, time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute,
-        time.wSecond, time.wMilliseconds, (unsigned long)target_pid, payload);
+        time.wSecond, time.wMilliseconds, (unsigned long)target_pid, debug_time, payload);
     if (len <= 0 || (size_t)len >= sizeof(line)) return;
     /* The parent owns the pipe and drains it. EOF is also detected in read_commands. */
     fwrite(line, 1, (size_t)len, stdout);
@@ -90,6 +95,8 @@ static void emit(const char *event, const char *format, ...) {
 }
 
 static uint64_t filetime_value(FILETIME time) { return ((uint64_t)time.dwHighDateTime << 32) | time.dwLowDateTime; }
+
+#include "performance.h"
 
 static void sample(void) {
     PROCESS_MEMORY_COUNTERS_EX memory = {0};
@@ -366,13 +373,34 @@ static BOOL validate_target(void) {
     return TRUE;
 }
 
+static int watch_counters_only(void) {
+    perf_emit(FALSE, "performance-status", ",\"status\":\"recording\",\"source\":\"windows-process-counters\",\"debuggerAttached\":false,\"threadCountAvailable\":false,\"reason\":\"debugger-attach-unavailable\",\"frameTimesCollected\":false,\"frameTimesStatus\":\"separate-presentmon-required\"");
+    BOOL exited = FALSE;
+    while (!stop_requested) {
+        DWORD wait = WaitForSingleObject(target_process, 100);
+        if (wait == WAIT_OBJECT_0) { exited = TRUE; break; }
+        if (wait == WAIT_FAILED) break;
+        read_commands();
+        perf_tick(FALSE);
+    }
+    if (exited) {
+        DWORD code = 0; BOOL known = GetExitCodeProcess(target_process, &code);
+        emit("exited", ",\"exitCode\":%lu,\"exitCodeHex\":\"0x%08lX\",\"exitCodeAvailable\":%s,\"elapsedMs\":%llu,\"fatalDumpCount\":0,\"debuggerAttached\":false",
+            (unsigned long)code, (unsigned long)code, known ? "true" : "false", GetTickCount64() - started);
+    }
+    perf_end(exited ? "process-exited" : "stopped");
+    return 0;
+}
+
 static int watch(void) {
     BOOL present = FALSE;
     if (!CheckRemoteDebuggerPresent(target_process, &present) || present) {
-        emit("attach-failed", ",\"reason\":\"debugger-present-or-unavailable\",\"win32Error\":%lu", (unsigned long)GetLastError()); return 3;
+        emit("attach-failed", ",\"reason\":\"debugger-present-or-unavailable\",\"win32Error\":%lu", (unsigned long)GetLastError());
+        return debug_enabled ? watch_counters_only() : 3;
     }
     if (!DebugActiveProcess(target_pid)) {
-        emit("attach-failed", ",\"reason\":\"debug-active-process\",\"win32Error\":%lu", (unsigned long)GetLastError()); return 3;
+        emit("attach-failed", ",\"reason\":\"debug-active-process\",\"win32Error\":%lu", (unsigned long)GetLastError());
+        return debug_enabled ? watch_counters_only() : 3;
     }
     /* Must run on the attaching thread, immediately after attaching. */
     if (!DebugSetProcessKillOnExit(FALSE)) {
@@ -390,6 +418,7 @@ static int watch(void) {
             DWORD continuation = DBG_CONTINUE;
             switch (event.dwDebugEventCode) {
             case CREATE_PROCESS_DEBUG_EVENT:
+                perf_thread(1);
                 log_module(event.u.CreateProcessInfo.hFile, event.u.CreateProcessInfo.lpBaseOfImage);
                 if (event.u.CreateProcessInfo.hFile) CloseHandle(event.u.CreateProcessInfo.hFile);
                 /* Windows closes the process/thread debug-event handles on exit. */
@@ -402,9 +431,11 @@ static int watch(void) {
                 if (++module_events <= 2048) emit("module-unloaded", ",\"base\":\"0x%016llX\"", (uint64_t)(uintptr_t)event.u.UnloadDll.lpBaseOfDll);
                 break;
             case CREATE_THREAD_DEBUG_EVENT:
+                perf_thread(1);
                 if (++thread_events <= 512) emit("thread-created", ",\"threadId\":%lu,\"startAddress\":\"0x%016llX\"", (unsigned long)event.dwThreadId, (uint64_t)(uintptr_t)event.u.CreateThread.lpStartAddress);
                 break;
             case EXIT_THREAD_DEBUG_EVENT:
+                perf_thread(-1);
                 if (++thread_events <= 512) emit("thread-exited", ",\"threadId\":%lu,\"exitCode\":%lu", (unsigned long)event.dwThreadId, (unsigned long)event.u.ExitThread.dwExitCode);
                 break;
             case EXCEPTION_DEBUG_EVENT: {
@@ -412,6 +443,7 @@ static int watch(void) {
                 if (waiting_attach_breakpoint && event.u.Exception.dwFirstChance && code == EXCEPTION_BREAKPOINT && remote_breakpoint &&
                     (uintptr_t)event.u.Exception.ExceptionRecord.ExceptionAddress == remote_breakpoint) {
                     waiting_attach_breakpoint = FALSE;
+                    if (perf.running) perf.threads_known = TRUE;
                     emit("attach-breakpoint", ",\"threadId\":%lu", (unsigned long)event.dwThreadId);
                     break;
                 }
@@ -427,7 +459,7 @@ static int watch(void) {
                     CONTEXT context;
                     BOOL context_ok = read_context(event.dwThreadId, &context);
                     log_exception(&event, &context, context_ok);
-                    if (fatal) { sample(); write_dump(FALSE, &event, &context, context_ok); }
+                    if (fatal) { sample(); perf_tick(TRUE); write_dump(FALSE, &event, &context, context_ok); }
                 } else ++dropped_first_chance;
                 break;
             }
@@ -454,10 +486,12 @@ static int watch(void) {
         }
         if (!exited && !waiting_attach_breakpoint) read_commands();
         ULONGLONG now = GetTickCount64();
+        if (!exited && !waiting_attach_breakpoint) perf_tick(FALSE);
         if (!exited && now >= next_sample) { sample(); next_sample = now + SAMPLE_INTERVAL; }
         if (now >= next_summary) { exception_summary(); next_summary = now + 30000; }
     }
     exception_summary();
+    perf_end(exited ? "process-exited" : "stopped");
     if (!exited) {
         BOOL detached = DebugActiveProcessStop(target_pid);
         emit("detached", ",\"success\":%s,\"win32Error\":%lu", detached ? "true" : "false", detached ? 0UL : (unsigned long)GetLastError());
@@ -472,6 +506,7 @@ int wmain(int argc, wchar_t **argv) {
         if (wcscmp(argv[i], L"--watch") == 0) watch_mode = TRUE;
         else if (wcscmp(argv[i], L"--snapshot") == 0) snapshot_mode = TRUE;
         else if (wcscmp(argv[i], L"--full") == 0) full = TRUE;
+        else if (wcscmp(argv[i], L"--debug") == 0) debug_enabled = TRUE;
         else if (wcscmp(argv[i], L"--pid") == 0 && i + 1 < argc) {
             wchar_t *end = NULL;
             unsigned long long parsed = wcstoull(argv[++i], &end, 10);
@@ -480,8 +515,8 @@ int wmain(int argc, wchar_t **argv) {
         } else if (wcscmp(argv[i], L"--output") == 0 && i + 1 < argc) output = argv[++i];
         else return 2;
     }
-    if (watch_mode == snapshot_mode || !output || !target_pid || (watch_mode && full)) {
-        fprintf(stderr, "Usage: ROTK.Diagnostics.exe (--watch | --snapshot) --pid PID --output DIRECTORY [--full]\n");
+    if (watch_mode == snapshot_mode || !output || !target_pid || (watch_mode && full) || (debug_enabled && !watch_mode)) {
+        fprintf(stderr, "Usage: ROTK.Diagnostics.exe (--watch [--debug] | --snapshot [--full]) --pid PID --output DIRECTORY\n");
         return 2;
     }
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
@@ -506,9 +541,11 @@ int wmain(int argc, wchar_t **argv) {
     __int64 existing = _ftelli64(journal);
     if (existing > 0) journal_bytes = (uint64_t)existing;
     rotate_journal();
+    if (debug_enabled) perf_begin(target_process, target_pid, output_directory);
     int result;
     if (watch_mode) result = watch();
     else { sample(); result = write_dump(full, NULL, NULL, FALSE) ? 0 : 4; }
+    perf_end("helper-stopped");
     if (journal) fclose(journal);
     CloseHandle(target_process);
     return result;

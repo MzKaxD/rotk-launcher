@@ -32,13 +32,13 @@ afterEach(async () => {
   }
 });
 
-async function fixture(onEvent = vi.fn<(event: NativeDiagnosticEvent) => void>()) {
+async function fixture(onEvent = vi.fn<(event: NativeDiagnosticEvent) => void>(), debug?: boolean) {
   const directory = await mkdtemp(join(tmpdir(), 'rotk-observer-test-')); roots.push(directory);
   const executable = join(directory, 'ROTK.Diagnostics.exe');
   const binary = Buffer.from('observer test helper bytes');
   await writeFile(executable, binary);
   await writeFile(`${executable}.sha256`, `${createHash('sha256').update(binary).digest('hex')}  ROTK.Diagnostics.exe\n`);
-  const observer = new DiagnosticObserver({ executable, directory, pid: 4242, onEvent });
+  const observer = new DiagnosticObserver({ executable, directory, pid: 4242, onEvent, debug });
   return { observer, directory, executable, onEvent, child: () => children.at(-1)! };
 }
 
@@ -61,6 +61,51 @@ describe('native observer lifecycle and protocol', () => {
     await expect(f.observer.start()).resolves.toBeUndefined();
     expect(mocks.spawn).not.toHaveBeenCalled();
     expect(f.onEvent).toHaveBeenCalledWith({ event: 'attach-failed', reason: 'helper-missing-or-invalid' });
+  });
+
+  it('passes --debug only when debug collection is enabled before watch startup', async () => {
+    const f = await fixture(undefined, true); await f.observer.start();
+    expect(mocks.spawn.mock.calls[0]?.[1]).toEqual(['--watch', '--pid', '4242', '--output', f.directory, '--debug']);
+    expect(f.observer.isAttached()).toBe(false);
+  });
+
+  it.each(['standard', 'full'] as const)('does not pass --debug to a standalone %s snapshot', async mode => {
+    const f = await fixture(undefined, true);
+    const capture = f.observer.captureOnce(mode);
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+    expect(mocks.spawn.mock.calls[0]?.[1]).toEqual(['--snapshot', '--pid', '4242', '--output', f.directory, ...(mode === 'full' ? ['--full'] : [])]);
+    f.child().event({ event: 'dump-written', kind: 'snapshot', full: mode === 'full' });
+    await expect(capture).resolves.toBeUndefined();
+  });
+
+  it('keeps sampling-only fallback unattached and can stop only its helper after the explicit safe handshake', async () => {
+    const f = await fixture(undefined, true); await f.observer.start();
+    f.child().event({ event: 'attach-failed', pid: 4242, reason: 'debugger-present-or-unavailable' });
+    f.child().event({ event: 'performance-status', pid: 4242, status: 'recording', source: 'windows-process-counters',
+      debuggerAttached: false, reason: 'debugger-attach-unavailable' });
+    f.child().event({ event: 'performance-sample', pid: 4242, privateBytes: 65536, threadsAvailable: false });
+    expect(f.observer.isAttached()).toBe(false);
+    expect(f.onEvent.mock.calls.map(([event]) => event.event)).toEqual(['attach-failed', 'performance-status', 'performance-sample']);
+    await expect(f.observer.snapshot('standard')).rejects.toThrow(/unavailable/);
+    vi.useFakeTimers();
+    const stopping = f.observer.stop();
+    expect(f.child().commands).toEqual(['stop\n']);
+    expect(f.child().kill).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5_100); await stopping;
+    expect(f.child().kill).toHaveBeenCalledExactlyOnceWith();
+    expect(mocks.spawn).toHaveBeenCalledOnce();
+  });
+
+  it.each(['initial-status', 'different-process', 'debug-disabled'] as const)('does not infer safe forced termination from %s', async kind => {
+    const f = await fixture(undefined, kind !== 'debug-disabled'); await f.observer.start();
+    f.child().event({ event: 'performance-status', pid: kind === 'different-process' ? 4243 : 4242,
+      status: 'recording', source: 'windows-process-counters',
+      ...(kind !== 'initial-status' ? { debuggerAttached: false, reason: 'debugger-attach-unavailable' } : {}) });
+    expect(f.observer.isAttached()).toBe(false);
+    vi.useFakeTimers();
+    const stopping = f.observer.stop(); await vi.advanceTimersByTimeAsync(5_100); await stopping;
+    expect(f.child().commands).toEqual(['stop\n']);
+    expect(f.child().kill).not.toHaveBeenCalled();
   });
 
   it('a missing helper and a throwing status callback cannot escape into launch', async () => {

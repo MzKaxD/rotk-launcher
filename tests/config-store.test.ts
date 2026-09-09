@@ -141,6 +141,16 @@ describe("ConfigStore", () => {
     expect(reloaded).toEqual({ schemaVersion: 1, serverId: "test", role: "admin" });
   });
 
+  it("keeps Debug opt-in and persists it independently of native crash capture", async () => {
+    const directory = await temporaryDirectory();
+    const store = new ConfigStore(directory);
+    expect((await store.load()).debugSessionEnabled).toBeUndefined();
+    await store.save({ schemaVersion: 1, diagnosticCaptureEnabled: false, debugSessionEnabled: true });
+    expect(await new ConfigStore(directory).load()).toEqual({ schemaVersion: 1, diagnosticCaptureEnabled: false, debugSessionEnabled: true });
+    await store.save({ schemaVersion: 1, debugSessionEnabled: false });
+    expect((await new ConfigStore(directory).load()).debugSessionEnabled).toBe(false);
+  });
+
   it("falls back to a fresh state rather than trusting an unknown server", async () => {
     const directory = await temporaryDirectory();
     await writeFile(join(directory, "config.v1.json"), JSON.stringify({

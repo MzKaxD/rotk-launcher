@@ -38,7 +38,7 @@ function unzip(path: string): Promise<Map<string, Buffer>> {
   });
 }
 function logsText(files: Map<string, Buffer>): string {
-  return [...files].filter(([name]) => /client-(?:local|failure|native)/.test(name)).map(([, bytes]) => bytes.toString()).join('\n');
+  return [...files].filter(([name]) => /client-(?:local|failure|native|game)/.test(name)).map(([, bytes]) => bytes.toString()).join('\n');
 }
 
 describe('diagnostic report collection and export', () => {
@@ -171,6 +171,132 @@ describe('diagnostic report collection and export', () => {
     const reports = await f.service.listReports();
     expect(reports.filter((r) => r.status !== 'recording')).toHaveLength(10);
     expect(reports.find((r) => r.id === active.id)?.status).toBe('recording');
+  });
+});
+
+describe('game log and debug-session exports', () => {
+  it('includes recognizable killfeed/GFx/asset log names from Logs with session cutoffs, redaction and frozen re-exports', async () => {
+    const f = await fixture(), logs = join(f.installationRoot, 'Logs'); await mkdir(logs);
+    const killfeed = join(logs, 'KillFeed.log'); await writeFile(killfeed, 'PREVIOUS_SESSION_KILL\n');
+    const { id } = await f.service.beginSession(f.context);
+    await appendFile(killfeed, '2026-09-09\t09:40:12\tPRIVATE-COMPUTER\t1788939612\t123\t4\t12345678\tTestPlayer characterId=0x12345678 KILLED FixtureVictim\n');
+    for (const name of ['GFxWrap.log', 'uiDB.log', 'FailedLoadAssets.log', 'FailedSyncLoadAssets.log', 'ContentPackErrors.txt']) {
+      await writeFile(join(logs, name), `${name} CURRENT_EVIDENCE sessionid=privateCredential123\n`);
+    }
+    await writeFile(join(logs, 'password.log'), 'EXCLUDED_CREDENTIAL_FILE');
+    await writeFile(join(logs, 'other.txt'), 'EXCLUDED_ARBITRARY_FILE');
+    await f.service.finalizeSession(id, { exitCode: 0 });
+    await appendFile(killfeed, 'LATER_SESSION_KILL\n');
+    await f.service.exportReport(id, join(f.root, 'game-logs.zip'), { includeDumps: false, description: '' });
+    const files = await unzip(join(f.root, 'game-logs.zip')), text = logsText(files);
+    expect(text).toContain('TestPlayer characterId=0x12345678 KILLED FixtureVictim');
+    expect(text).toContain('2026-09-09\t09:40:12\t[HOST]\t');
+    for (const name of ['KillFeed.log', 'GFxWrap.log', 'uiDB.log', 'FailedLoadAssets.log', 'FailedSyncLoadAssets.log', 'ContentPackErrors.txt']) {
+      expect([...files.keys()].some((entry) => entry.includes(`client-game-${name}`))).toBe(true);
+    }
+    for (const forbidden of ['PREVIOUS_SESSION_KILL', 'LATER_SESSION_KILL', 'PRIVATE-COMPUTER', 'privateCredential123', 'EXCLUDED_']) expect(text).not.toContain(forbidden);
+    await writeFile(killfeed, 'REPLACED_AFTER_COMPLETION');
+    await f.service.exportReport(id, join(f.root, 'frozen-game-logs.zip'), { includeDumps: false, description: '' });
+    expect(logsText(await unzip(join(f.root, 'frozen-game-logs.zip')))).toBe(text);
+  });
+
+  it('captures newly created Logs directories without retaining an initial missing-directory error', async () => {
+    const f = await fixture(), { id } = await f.service.beginSession(f.context);
+    await mkdir(join(f.installationRoot, 'Logs')); await writeFile(join(f.installationRoot, 'Logs', 'KillFeed.log'), 'FIRST_GAME_KILL');
+    await f.service.finalizeSession(id, { exitCode: 0 }); await f.service.collectSession(id);
+    const record = await f.service.getReport(id);
+    expect(record.issues.some((issue) => issue.source === 'client-game' && issue.reason === 'ENOENT')).toBe(false);
+  });
+
+  it('keeps complete debug JSONL beyond 2 MiB, both rotations and summaries, with manifest hashes and no unexpected artifacts', async () => {
+    const f = await fixture(), { id, directory } = await f.service.beginSession(f.context);
+    const row = JSON.stringify({ event: 'frame', at: '2026-09-09T07:40:12.123Z', frameTimeMs: 2.1, padding: 'x'.repeat(1100) }) + '\n';
+    const content = row.repeat(2600);
+    expect(Buffer.byteLength(content)).toBeGreaterThan(2 * 1024 * 1024);
+    for (const name of ['performance.jsonl', 'performance.jsonl.1', 'frame-times.jsonl', 'frame-times.jsonl.1']) {
+      await writeFile(join(directory, name), content);
+    }
+    await writeFile(join(directory, 'performance-summary.json'), JSON.stringify({ sampleIntervalMs: 1000, samples: 2600 }));
+    await writeFile(join(directory, 'frame-times-summary.json'), JSON.stringify({ status: 'captured', p99FrameTimeMs: 2.1, frames: 5200 }));
+    await writeFile(join(directory, 'frame-times.csv'), 'RAW_ARBITRARY_PRIVATE_DATA');
+    await writeFile(join(directory, 'private-extra.jsonl'), 'RAW_ARBITRARY_PRIVATE_DATA');
+    await f.service.finalizeSession(id, { exitCode: 0 });
+    await f.service.exportReport(id, join(f.root, 'debug.zip'), { includeDumps: false, description: '' });
+    const files = await unzip(join(f.root, 'debug.zip'));
+    for (const name of ['performance.jsonl', 'performance.jsonl.1', 'frame-times.jsonl', 'frame-times.jsonl.1']) {
+      expect(files.get(name)!.toString()).toBe(content);
+    }
+    expect(JSON.parse(files.get('performance-summary.json')!.toString()).sampleIntervalMs).toBe(1000);
+    expect(JSON.parse(files.get('frame-times-summary.json')!.toString()).frames).toBe(5200);
+    expect(files.has('frame-times.csv')).toBe(false); expect(files.has('private-extra.jsonl')).toBe(false);
+    const manifest = JSON.parse(files.get('manifest.json')!.toString());
+    expect(manifest.limits).toMatchObject({ debugJsonlBytesPerFile: 16 * 1024 * 1024, debugSummaryBytesPerFile: 64 * 1024, debugBytesTotal: 66 * 1024 * 1024 });
+    for (const item of manifest.files) {
+      expect(files.get(item.name)!.length).toBe(item.bytes);
+      expect(createHash('sha256').update(files.get(item.name)!).digest('hex')).toBe(item.sha256);
+    }
+    expect(files.get('README.txt')!.toString()).toMatch(/one-second.*not a frame-time/);
+    expect(files.get('README.txt')!.toString()).toContain('does not establish that the killfeed');
+  });
+
+  it('sanitizes structured debug rows and freezes them after final collection while preserving late collector summaries', async () => {
+    const f = await fixture(), { id, directory } = await f.service.beginSession(f.context);
+    await writeFile(join(directory, 'performance.jsonl'), JSON.stringify({ at: '2026-09-09T07:42:00Z', processCpuPercent: 84.5,
+      playerName: 'TestPlayer', characterId: '0x12345678', commandLine: 'PRIVATE_ARGS', environment: { PRIVATE_ENV: 'value' },
+      error: 'privateCredential123 C:\\Users\\PrivatePerson\\Game\\file.log' }) + '\n');
+    await f.service.finalizeSession(id, { exitCode: 0 });
+    // Session-owned collectors finish after the shared game log cutoff.
+    await writeFile(join(directory, 'performance-summary.json'), JSON.stringify({ status: 'stopped', samples: 1, password: 'PRIVATE_PASSWORD' }));
+    await writeFile(join(directory, 'frame-times-summary.json'), JSON.stringify({ status: 'unavailable', reason: 'collector_not_installed' }));
+    await f.service.exportReport(id, join(f.root, 'sanitized-debug.zip'), { includeDumps: false, description: '' });
+    const files = await unzip(join(f.root, 'sanitized-debug.zip'));
+    const row = JSON.parse(files.get('performance.jsonl')!.toString());
+    expect(row).toMatchObject({ processCpuPercent: 84.5, playerName: 'TestPlayer', characterId: '0x12345678' });
+    expect(JSON.stringify(row)).not.toMatch(/PRIVATE_|PrivatePerson|privateCredential123/);
+    expect(JSON.parse(files.get('performance-summary.json')!.toString())).toEqual({ status: 'stopped', samples: 1 });
+    expect(JSON.parse(files.get('frame-times-summary.json')!.toString()).status).toBe('unavailable');
+    await appendFile(join(directory, 'performance.jsonl'), '{"afterCompletion":true}\n');
+    await writeFile(join(directory, 'frame-times-summary.json'), '{"status":"replaced"}');
+    await f.service.exportReport(id, join(f.root, 'frozen-debug.zip'), { includeDumps: false, description: '' });
+    const frozen = await unzip(join(f.root, 'frozen-debug.zip'));
+    expect(frozen.get('performance.jsonl')).toEqual(files.get('performance.jsonl'));
+    expect(frozen.get('frame-times-summary.json')).toEqual(files.get('frame-times-summary.json'));
+  });
+
+  it('enforces debug source/row/summary limits and emits only valid JSON rows', async () => {
+    const f = await fixture(), { id, directory } = await f.service.beginSession(f.context);
+    const good = '{"sample":1,"cpuPercent":25}\n';
+    await writeFile(join(directory, 'frame-times.jsonl'), good + 'x'.repeat(17 * 1024 * 1024));
+    await writeFile(join(directory, 'performance.jsonl'), good + '{"incomplete":' + '\n' + JSON.stringify({ value: 'x'.repeat(70 * 1024) }) + '\n' + good);
+    await writeFile(join(directory, 'performance-summary.json'), JSON.stringify({ padding: 'x'.repeat(65 * 1024) }));
+    await f.service.finalizeSession(id, { exitCode: 0 });
+    await f.service.exportReport(id, join(f.root, 'debug-limits.zip'), { includeDumps: false, description: '' });
+    const files = await unzip(join(f.root, 'debug-limits.zip')), manifest = JSON.parse(files.get('manifest.json')!.toString());
+    expect(files.get('frame-times.jsonl')!.toString()).toBe(good);
+    expect(files.get('performance.jsonl')!.toString()).toBe(good + good);
+    expect(files.has('performance-summary.json')).toBe(false);
+    for (const reason of ['debug_source_truncated_16MiB', 'debug_rows_exceeding_64KiB_omitted', 'debug_incomplete_or_invalid_json_rows_omitted', 'debug_summary_exceeds_64KiB']) {
+      expect(manifest.issues.some((issue: { reason: string }) => issue.reason === reason)).toBe(true);
+    }
+  });
+
+  it('rejects a junction for game Logs and linked debug evidence', async () => {
+    const f = await fixture(), external = join(f.root, 'outside'); await mkdir(external);
+    await writeFile(join(external, 'KillFeed.log'), 'OUTSIDE_GAME_LOG');
+    await symlink(external, join(f.installationRoot, 'Logs'), process.platform === 'win32' ? 'junction' : 'dir');
+    const { id, directory } = await f.service.beginSession(f.context);
+    const secret = join(external, 'secret.jsonl'); await writeFile(secret, '{"outside":"PRIVATE"}\n');
+    // Junctions exercise the Windows reparse-point guard without requiring the
+    // elevated privilege needed to create file symlinks on some test machines.
+    await symlink(process.platform === 'win32' ? external : secret, join(directory, 'performance.jsonl'), process.platform === 'win32' ? 'junction' : 'file');
+    await f.service.finalizeSession(id, { exitCode: 0 });
+    await f.service.exportReport(id, join(f.root, 'linked-debug.zip'), { includeDumps: false, description: '' });
+    const files = await unzip(join(f.root, 'linked-debug.zip'));
+    expect(files.has('performance.jsonl')).toBe(false);
+    expect(logsText(files)).not.toContain('OUTSIDE_GAME_LOG');
+    const manifest = JSON.parse(files.get('manifest.json')!.toString());
+    expect(manifest.issues.some((issue: { source: string }) => issue.source === 'performance.jsonl')).toBe(true);
+    expect(await readFile(secret, 'utf8')).toContain('PRIVATE');
   });
 });
 

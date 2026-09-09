@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { LauncherSnapshot, OperationResult } from "../shared/contracts";
 import { GlobalActivityCenter } from "./components/GlobalActivityCenter";
 import { CrashReportFeedback, useCrashReport } from "./components/CrashReportFeedback";
@@ -19,7 +19,14 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [transientError, setTransientError] = useState<string | null>(null);
   const [detectAttempted, setDetectAttempted] = useState(false);
-  const working = busy || crashReport.busy;
+  const [debugSessionBusy, setDebugSessionBusy] = useState(false);
+  const [debugSessionFailed, setDebugSessionFailed] = useState(false);
+  const debugSessionInFlight = useRef(false);
+  const working = busy || crashReport.busy || debugSessionBusy || snapshot?.debugSession?.status === "preparing";
+  const debugSessionLocked = working || snapshot?.gamePid != null
+    || snapshot?.phase === "running" || snapshot?.phase === "launching" || snapshot?.phase === "installing"
+    || snapshot?.debugSession?.status === "recording"
+    || snapshot?.assetSync.status === "checking" || snapshot?.assetSync.status === "downloading" || snapshot?.assetSync.status === "installing";
 
   useEffect(() => {
     setTransientError(null);
@@ -27,19 +34,23 @@ export default function App() {
 
   useEffect(() => {
     let mounted = true;
+    let previousPhase: LauncherSnapshot["phase"] | undefined;
     void window.rotk.getSnapshot().then((value) => {
       if (!mounted) return;
+      previousPhase = value.phase;
       setSnapshot(value);
       if (!value.installationRoot) setSetupOpen(true);
       else if (!value.playerIdentity.configured) setIdentityOpen(true);
     });
     const unsubscribe = window.rotk.onSnapshot((value) => {
+      const installationFinished = previousPhase === "installing" && value.phase === "ready";
+      previousPhase = value.phase;
       setSnapshot(value);
       if (value.phase === "installing") {
         setIdentityOpen(false);
         setSetupOpen(true);
       }
-      if (value.phase === "ready" && value.installationRoot) {
+      if (installationFinished && value.installationRoot) {
         setSetupOpen(false);
         if (!value.playerIdentity.configured) setIdentityOpen(true);
       }
@@ -70,6 +81,23 @@ export default function App() {
       setBusy(false);
     }
   }, [copy.app.operationFailed]);
+
+  const toggleDebugSession = useCallback(async (enabled: boolean) => {
+    if (debugSessionInFlight.current || debugSessionLocked) return;
+    debugSessionInFlight.current = true;
+    setDebugSessionBusy(true);
+    setDebugSessionFailed(false);
+    try {
+      const result = await window.rotk.setDebugSessionEnabled(enabled);
+      if (result.ok && result.value) setSnapshot(result.value);
+      else if (!result.cancelled) setDebugSessionFailed(true);
+    } catch {
+      setDebugSessionFailed(true);
+    } finally {
+      debugSessionInFlight.current = false;
+      setDebugSessionBusy(false);
+    }
+  }, [debugSessionLocked]);
 
   if (!snapshot) {
     return (
@@ -146,6 +174,10 @@ export default function App() {
         onVerifyAssets={() => void perform(() => window.rotk.verifyAssets())}
         onRestoreAssets={() => void perform(() => window.rotk.restoreVanillaAssets())}
         onToggleAssetSync={(enabled) => void perform(() => window.rotk.setAssetSyncEnabled(enabled))}
+        debugSessionBusy={debugSessionBusy}
+        debugSessionFailed={debugSessionFailed}
+        debugSessionLocked={debugSessionLocked}
+        onToggleDebugSession={(enabled) => void toggleDebugSession(enabled)}
       />
     </main>
   );

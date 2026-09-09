@@ -7,6 +7,7 @@ export interface NativeObserverOptions {
   executable: string;
   pid: number;
   directory: string;
+  debug?: boolean;
   onEvent(event: NativeDiagnosticEvent): void;
 }
 
@@ -33,7 +34,7 @@ export class DiagnosticObserver {
       if (this.stopping) { this.rejectPending("Diagnostic capture was stopped"); return; }
       this.mayTerminateHelper = Boolean(snapshotMode);
       const child = spawn(this.options.executable, [snapshotMode ? "--snapshot" : "--watch", "--pid", String(this.options.pid), "--output", this.options.directory,
-        ...(snapshotMode === "full" ? ["--full"] : [])], {
+        ...(snapshotMode === "full" ? ["--full"] : []), ...(!snapshotMode && this.options.debug ? ["--debug"] : [])], {
         windowsHide: true, shell: false, stdio: ["pipe", "pipe", "pipe"],
       });
       this.child = child;
@@ -59,6 +60,13 @@ export class DiagnosticObserver {
             if (!event || typeof event.event !== "string") continue;
             if (event.event === "attached") { this.attached = true; this.mayTerminateHelper = event.killOnExit === false; }
             if (event.event === "attach-failed") this.attached = false;
+            if (this.options.debug && event.event === "performance-status" && event.pid === this.options.pid
+              && event.status === "recording" && event.source === "windows-process-counters"
+              && event.debuggerAttached === false && event.reason === "debugger-attach-unavailable") {
+              // This explicit native handshake confirms sampling continues without a debugger attachment.
+              this.attached = false;
+              this.mayTerminateHelper = true;
+            }
             if (event.event === "dump-started") {
               this.clearDumpWatchdog();
               this.dumpWatchdog = setTimeout(() => this.terminateStuckCapture(), event.full === true ? 200_000 : 70_000);
@@ -137,7 +145,7 @@ export class DiagnosticObserver {
     this.rejectPending("Diagnostic capture was stopped");
     if (this.child && !this.child.stdin.destroyed) this.child.stdin.end("stop\n");
     await this.drain();
-    // The helper explicitly disables Windows' debugger kill-on-exit behavior.
+    // The helper confirms kill-on-exit was disabled, or that it only samples without attaching.
     // Never use taskkill /T, and never signal the game PID.
     if (this.child && this.mayTerminateHelper) this.child.kill();
     this.clearDumpWatchdog();

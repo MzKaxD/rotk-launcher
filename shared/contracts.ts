@@ -134,6 +134,7 @@ export interface IntegrityCheckSummary {
 }
 
 export interface LauncherSnapshot {
+  debugSession?: DebugSessionSummary;
   appVersion: string;
   phase: LauncherPhase;
   selection: InstallSelection;
@@ -153,6 +154,13 @@ export interface LauncherSnapshot {
   canPlay: boolean;
 }
 
+export interface DebugSessionSummary {
+  enabled: boolean;
+  status: "idle" | "recording" | "preparing" | "ready" | "error";
+  fileName: string | null;
+  error: string | null;
+}
+
 export interface OperationResult<T = undefined> {
   ok: boolean;
   value?: T;
@@ -161,6 +169,7 @@ export interface OperationResult<T = undefined> {
 }
 
 export interface RotkLauncherApi {
+  setDebugSessionEnabled(enabled: boolean): Promise<OperationResult<LauncherSnapshot>>;
   getDiagnosticReports(): Promise<OperationResult<import("./diagnostics.js").DiagnosticState>>;
   reportCrash(): Promise<OperationResult<{ fileName: string }>>;
   captureDiagnostic(request: import("./diagnostics.js").DiagnosticCaptureRequest): Promise<OperationResult<import("./diagnostics.js").DiagnosticReportSummary>>;
@@ -195,6 +204,7 @@ export interface RotkLauncherApi {
 }
 
 export const IPC_CHANNELS = {
+  setDebugSessionEnabled: "diagnostics:set-debug-session-enabled",
   getDiagnosticReports: "diagnostics:list",
   reportCrash: "diagnostics:report-crash",
   captureDiagnostic: "diagnostics:capture",

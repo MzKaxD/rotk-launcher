@@ -63,6 +63,19 @@ async function fixture() {
 }
 
 describe('game lifecycle remains independent of diagnostics', () => {
+  it('awaits prepared session evidence before creating the game process', async () => {
+    const f = await fixture(), prepared = deferred();
+    f.diagnostics.onPreparing = vi.fn(() => prepared.promise);
+    const launched = f.launcher.launch(f.request).catch(error => error);
+    await vi.waitFor(() => expect(f.diagnostics.onPreparing).toHaveBeenCalledOnce());
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    prepared.resolve();
+    await vi.waitFor(() => expect(f.diagnostics.onSpawned).toHaveBeenCalledWith(4242));
+    f.child().exit(0);
+    await launched;
+    expect(f.diagnostics.onPreparing).toHaveBeenCalledOnce();
+  });
+
   it('reports a real startup exit code and waits for collection before invoking the launcher exit callback', async () => {
     const f = await fixture(), collection = deferred();
     vi.mocked(f.diagnostics.onExit).mockReturnValue(collection.promise);
@@ -81,6 +94,7 @@ describe('game lifecycle remains independent of diagnostics', () => {
 
   it('throwing diagnostic callbacks cannot prevent launch, output processing or final game cleanup', async () => {
     const f = await fixture();
+    f.diagnostics.onPreparing = vi.fn(async () => { throw new Error('Diagnostic disk unavailable'); });
     for (const hook of ['onIdentity', 'onSpawned', 'onOutput', 'onExit'] as const)
       vi.mocked(f.diagnostics[hook]).mockImplementation(() => { throw new Error('Diagnostic callback failed'); });
     const launched = f.launcher.launch(f.request);

@@ -61,7 +61,7 @@ describe.skipIf(!enabled)('real DiagnosticObserver to Windows native helper brid
     } }); observers.push(observer);
     await observer.start();
     await vi.waitFor(() => expect(events.some(event => event.event === 'attach-breakpoint')).toBe(true), { timeout: 10_000 });
-    return { root, directory, target, observer, events, output: () => output };
+    return { root, executable, directory, target, observer, events, output: () => output };
   }
 
   it('managed exceptions pass through, then an actual fatal exception yields a complete MDMP through the wrapper', async () => {
@@ -93,4 +93,30 @@ describe.skipIf(!enabled)('real DiagnosticObserver to Windows native helper brid
     await vi.waitFor(() => expect(f.output()).toContain('alive:debugger=0'), { timeout: 5_000 });
     expect(gameKill).not.toHaveBeenCalled();
   }, 90_000);
+
+  it('a debug observer falls back to real counters behind an existing debugger and stops without affecting the target', async () => {
+    const f = await fixture();
+    const gameKill = vi.spyOn(f.target, 'kill');
+    const directory = join(f.root, 'fallback'); await mkdir(directory);
+    const events: NativeDiagnosticEvent[] = [];
+    const sampler = new DiagnosticObserver({ executable: f.executable, directory, pid: f.target.pid!, debug: true,
+      onEvent: event => { events.push(event); } }); observers.push(sampler);
+    await sampler.start();
+    await vi.waitFor(() => expect(events.some(event => event.event === 'performance-sample')).toBe(true), { timeout: 10_000 });
+    expect(events.some(event => event.event === 'attach-failed')).toBe(true);
+    expect(events.some(event => event.event === 'performance-status' && event.debuggerAttached === false
+      && event.reason === 'debugger-attach-unavailable')).toBe(true);
+    expect(events.some(event => event.event === 'attached')).toBe(false);
+    expect(sampler.isAttached()).toBe(false);
+    await expect(sampler.snapshot('standard')).rejects.toThrow(/unavailable/);
+    await sampler.stop();
+    const summary = JSON.parse(await readFile(join(directory, 'performance-summary.json'), 'utf8'));
+    expect(summary.reason).toBe('stopped');
+    expect(summary.sampleCount).toBeGreaterThan(0);
+    expect(summary.validSamples.threads).toBe(0);
+    f.target.stdin.write('ping\n');
+    await vi.waitFor(() => expect(f.output()).toContain('alive:debugger=1'), { timeout: 5_000 });
+    expect(f.observer.isAttached()).toBe(true);
+    expect(gameKill).not.toHaveBeenCalled();
+  }, 30_000);
 });

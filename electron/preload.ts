@@ -6,6 +6,7 @@ import {
 } from "../shared/contracts.js";
 
 const api: RotkLauncherApi = {
+  setDebugSessionEnabled: (enabled) => ipcRenderer.invoke(IPC_CHANNELS.setDebugSessionEnabled, enabled),
   getDiagnosticReports: () => ipcRenderer.invoke(IPC_CHANNELS.getDiagnosticReports),
   reportCrash: () => ipcRenderer.invoke(IPC_CHANNELS.reportCrash),
   captureDiagnostic: (request) => ipcRenderer.invoke(IPC_CHANNELS.captureDiagnostic, request),

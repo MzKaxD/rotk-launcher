@@ -4,6 +4,7 @@ import { appendFile, copyFile, link, lstat, mkdir, open, readFile, readdir, real
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { createInterface } from 'node:readline';
 import * as yazl from 'yazl';
 import type { DiagnosticCaptureStatus, DiagnosticReportKind, DiagnosticReportSummary } from '../../shared/diagnostics.js';
 import { redactDiagnosticText, sanitizeDiagnosticValue } from './diagnostic-redaction.js';
@@ -12,8 +13,19 @@ const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const FILE_LIMIT = 2 * 1024 * 1024;
 const TOTAL_LIMIT = 20 * 1024 * 1024;
 const FILE_COUNT = 40;
+const DEBUG_JSONL_LIMIT = 16 * 1024 * 1024;
+const DEBUG_SUMMARY_LIMIT = 64 * 1024;
+const DEBUG_TOTAL_LIMIT = 66 * 1024 * 1024;
+const DEBUG_LINE_LIMIT = 64 * 1024;
+const DEBUG_FILES = new Map([
+  ['performance.jsonl.1', DEBUG_JSONL_LIMIT], ['performance.jsonl', DEBUG_JSONL_LIMIT],
+  ['performance-summary.json', DEBUG_SUMMARY_LIMIT],
+  ['frame-times.jsonl.1', DEBUG_JSONL_LIMIT], ['frame-times.jsonl', DEBUG_JSONL_LIMIT],
+  ['frame-times-summary.json', DEBUG_SUMMARY_LIMIT],
+]);
 const RETENTION_BYTES = 5 * 1024 ** 3;
 const ROOT_LOG_NAMES = new Set(['rotk-crouch-parity.log', 'rotk-vivox-v5-compat.log', 'rotk-vivox-hook.log', 'rotk-vivoxproxy.log', 'steam_api64.log', 'vivox.log', 'vivoxsdk_x64.log', 'h1z1.log', 'client.log', 'game.log', 'connection.log', 'debug.txt']);
+const GAME_LOG_NAMES = new Set(['killfeed.log', 'gfxwrap.log', 'uidb.log', 'failedloadassets.log', 'failedsyncloadassets.log', 'contentpackerrors.txt']);
 // The game chooses variable log component names. Within its dedicated log
 // directories accept .log rotations; structured/text reports require a known
 // diagnostic prefix. Configuration and credentials remain explicitly excluded.
@@ -183,12 +195,15 @@ export class DiagnosticReportService {
   }
   private async sources(context: DiagnosticSessionContext): Promise<{ files: SourceSnapshot[]; issues: Issue[] }> {
     const files: SourceSnapshot[] = [], issues: Issue[] = [];
-    const roots: { path: string; boundary: string; label: string; recursive: boolean }[] = [];
+    const roots: { path: string; boundary: string; label: string; recursive: boolean; names?: ReadonlySet<string> }[] = [];
     if (context.logsRoot && context.installId && /^[A-Za-z0-9_-]{1,128}$/.test(context.installId)) {
       roots.push({ path: join(context.logsRoot, context.installId, 'local'), boundary: context.logsRoot, label: 'client-local', recursive: true },
         { path: join(context.logsRoot, context.installId, 'failure'), boundary: context.logsRoot, label: 'client-failure', recursive: true });
     }
-    if (context.installationRoot) roots.push({ path: context.installationRoot, boundary: context.installationRoot, label: 'client-native', recursive: false });
+    if (context.installationRoot) roots.push(
+      { path: context.installationRoot, boundary: context.installationRoot, label: 'client-native', recursive: false },
+      { path: join(context.installationRoot, 'Logs'), boundary: context.installationRoot, label: 'client-game', recursive: false, names: GAME_LOG_NAMES },
+    );
     for (const source of roots) {
       let inspected = 0;
       const walk = async (directory: string, depth: number): Promise<void> => {
@@ -202,10 +217,11 @@ export class DiagnosticReportService {
             if (FORBIDDEN_LOG.test(entry.name)) continue;
             await walk(path, depth + 1).catch(() => issues.push({ source: source.label, reason: 'subdirectory_unavailable' })); continue;
           }
-          if (!entry.isFile() || (source.recursive ? !LOG_NAME.test(entry.name) || FORBIDDEN_LOG.test(entry.name) : !ROOT_LOG_NAMES.has(entry.name.toLowerCase()))) continue;
+          const knownName = entry.name.toLowerCase().replace(/\.[0-9]{1,3}$/, '');
+          if (!entry.isFile() || (source.names ? !source.names.has(knownName) : source.recursive ? !LOG_NAME.test(entry.name) || FORBIDDEN_LOG.test(entry.name) : !ROOT_LOG_NAMES.has(entry.name.toLowerCase()))) continue;
           try {
             const info = await safeFile(path, source.boundary);
-            files.push({ path, root: source.boundary, label: source.label, size: info.size, mtimeMs: info.mtimeMs, ino: info.ino, prefix: await prefixHash(path, info.size) });
+            files.push({ path, root: source.boundary, label: source.names ? `${source.label}-${entry.name}` : source.label, size: info.size, mtimeMs: info.mtimeMs, ino: info.ino, prefix: await prefixHash(path, info.size) });
           } catch (error) { issues.push({ source: source.label, reason: failureReason(error) }); }
         }
       };
@@ -341,7 +357,7 @@ export class DiagnosticReportService {
       const current = ended
         ? { files: record.exitSources ?? [], issues: record.exitSourcesCapturedAt ? [] : [{ source: 'client-logs', reason: 'session_end_log_boundary_unavailable' }] }
         : await this.sources(record.context);
-      const issues = [...record.issues.filter((issue) => !(issue.reason === 'ENOENT' && current.files.some((file) => file.label === issue.source))), ...current.issues];
+      const issues = [...record.issues.filter((issue) => !(issue.reason === 'ENOENT' && current.files.some((file) => file.label === issue.source || file.label.startsWith(`${issue.source}-`)))), ...current.issues];
       for (const old of record.sources) if (!current.files.some((item) => item.path === old.path)) issues.push({ source: old.label, reason: 'previous_source_missing_or_rotated' });
       let total = 0, count = 0;
       const saved = new Map<string, number>();
@@ -349,7 +365,7 @@ export class DiagnosticReportService {
       // rotated, removed or changed after the exit. Only explicit prior outputs
       // are eligible; unknown leftovers never enter the archive.
       for (const name of Array.isArray(record.context.collectedFiles) ? record.context.collectedFiles : []) {
-        if (typeof name !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(name) || !/client-(?:local|failure|native)/.test(name)) continue;
+        if (typeof name !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(name) || !/client-(?:local|failure|native|game)/.test(name)) continue;
         try {
           const info = await safeFile(join(collected, name), collected);
           if (info.size > FILE_LIMIT || count >= FILE_COUNT - 3 || total + info.size > TOTAL_LIMIT - 3 * FILE_LIMIT) continue;
@@ -357,6 +373,9 @@ export class DiagnosticReportService {
         } catch { issues.push({ source: name, reason: 'previous_capture_unavailable' }); }
       }
       const save = async (name: string, text: string): Promise<void> => {
+        // Native game log rows contain a machine-name column before their
+        // session/event counters. Preserve clocks and game identities only.
+        text = text.replace(/^(\d{4}-\d{2}-\d{2}\t\d{2}:\d{2}:\d{2}(?:\.\d+)?\t)[^\t\r\n]+(?=\t)/gm, '$1[HOST]');
         let sanitized: string;
         try {
           // Real client reports can be pretty-printed JSON, including nested
@@ -435,6 +454,8 @@ export class DiagnosticReportService {
           }
         }
       }
+      const debugSaved = await this.collectDebugArtifacts(record, collected, issues);
+      for (const [name, bytes] of debugSaved) { saved.set(name, bytes); total += bytes; }
       const dumps = await this.dumps(id);
       record.summary.dumpCount = dumps.length; record.summary.hasFullDump = dumps.some((dump) => dump.full);
       record.summary.totalBytes = total + dumps.reduce((sum, dump) => sum + dump.size, 0);
@@ -457,6 +478,83 @@ export class DiagnosticReportService {
     if ((await lstat(readme).catch(() => null))?.isSymbolicLink()) throw new Error('Unsafe diagnostic readme.');
     await writeFile(readme, this.readme(record), 'utf8');
   }
+  /** Session-owned debug evidence has a separate budget and is frozen by collectSession at completion. */
+  private async collectDebugArtifacts(record: DiagnosticReportRecord, collected: string, issues: Issue[]): Promise<Map<string, number>> {
+    const dir = this.getDirectory(record.summary.id), saved = new Map<string, number>();
+    const secrets = this.secrets();
+    let total = 0;
+    // Preserve an earlier valid capture if a source is temporarily unavailable.
+    for (const name of Array.isArray(record.context.collectedFiles) ? record.context.collectedFiles : []) {
+      if (typeof name !== 'string' || !DEBUG_FILES.has(name)) continue;
+      try {
+        const info = await safeFile(join(collected, name), collected);
+        if (info.size <= DEBUG_FILES.get(name)! && total + info.size <= DEBUG_TOTAL_LIMIT) { saved.set(name, info.size); total += info.size; }
+      } catch { issues.push({ source: name, reason: 'previous_debug_capture_unavailable' }); }
+    }
+    for (const [name, limit] of DEBUG_FILES) {
+      const source = join(dir, name), destination = join(collected, name);
+      const present = await lstat(source).catch(() => null);
+      if (!present) continue;
+      const temporary = join(collected, `.debug-${randomUUID()}.tmp`);
+      let sourceHandle: Awaited<ReturnType<typeof open>> | undefined;
+      let outputHandle: Awaited<ReturnType<typeof open>> | undefined;
+      try {
+        const info = await safeFile(source, dir);
+        if ((await lstat(destination).catch(() => null))?.isSymbolicLink()) throw new Error('linked_output');
+        const available = Math.min(limit, DEBUG_TOTAL_LIMIT - total + (saved.get(name) ?? 0));
+        sourceHandle = await open(source, 'r');
+        const opened = await sourceHandle.stat();
+        if (opened.ino !== info.ino || opened.size < info.size) throw new Error('debug_source_changed');
+        outputHandle = await open(temporary, 'wx');
+        let bytes = 0;
+        if (name.endsWith('.json')) {
+          if (info.size > limit) { issues.push({ source: name, reason: 'debug_summary_exceeds_64KiB' }); continue; }
+          const buffer = Buffer.alloc(info.size);
+          let offset = 0;
+          while (offset < buffer.length) {
+            const read = await sourceHandle.read(buffer, offset, buffer.length - offset, offset);
+            if (!read.bytesRead) throw new Error('debug_source_changed');
+            offset += read.bytesRead;
+          }
+          const sanitized = Buffer.from(JSON.stringify(sanitizeDiagnosticValue(JSON.parse(buffer.toString('utf8')), secrets), null, 2) + '\n');
+          if (sanitized.length > available) { issues.push({ source: name, reason: 'debug_sanitized_summary_limit' }); continue; }
+          await outputHandle.writeFile(sanitized); bytes = sanitized.length;
+        } else if (info.size > 0) {
+          const input = sourceHandle.createReadStream({ start: 0, end: Math.min(info.size, limit) - 1, autoClose: false });
+          const lines = createInterface({ input, crlfDelay: Infinity });
+          let pending: Buffer[] = [], pendingBytes = 0;
+          let malformed = false, oversized = false, outputLimited = false;
+          const flush = async () => { if (pendingBytes) { await outputHandle!.writeFile(Buffer.concat(pending, pendingBytes)); pending = []; pendingBytes = 0; } };
+          try {
+            for await (const line of lines) {
+              if (!line.trim()) continue;
+              if (Buffer.byteLength(line) > DEBUG_LINE_LIMIT) { oversized = true; continue; }
+              let sanitized: Buffer;
+              try { sanitized = Buffer.from(JSON.stringify(sanitizeDiagnosticValue(JSON.parse(line), secrets)) + '\n'); }
+              catch { malformed = true; continue; }
+              if (bytes + sanitized.length > available) { outputLimited = true; break; }
+              bytes += sanitized.length; pending.push(sanitized); pendingBytes += sanitized.length;
+              if (pendingBytes >= 64 * 1024) await flush();
+            }
+            await flush();
+          } finally { lines.close(); input.destroy(); }
+          if (info.size > limit) issues.push({ source: name, reason: 'debug_source_truncated_16MiB' });
+          if (oversized) issues.push({ source: name, reason: 'debug_rows_exceeding_64KiB_omitted' });
+          if (malformed) issues.push({ source: name, reason: 'debug_incomplete_or_invalid_json_rows_omitted' });
+          if (outputLimited) issues.push({ source: name, reason: 'debug_sanitized_output_limit' });
+        }
+        await outputHandle.close(); outputHandle = undefined;
+        await rename(temporary, destination);
+        total += bytes - (saved.get(name) ?? 0); saved.set(name, bytes);
+      } catch (error) { issues.push({ source: name, reason: `debug_evidence_unavailable_${failureReason(error)}` }); }
+      finally {
+        await sourceHandle?.close().catch(() => undefined);
+        await outputHandle?.close().catch(() => undefined);
+        await rm(temporary, { force: true }).catch(() => undefined);
+      }
+    }
+    return saved;
+  }
   private publicRecord(record: DiagnosticReportRecord): unknown {
     const { installationRoot: _root, logsRoot: _logs, ...context } = record.context;
     return sanitizeDiagnosticValue({ schemaVersion: 1, summary: record.summary, context, timezoneOffsetMinutes: record.timezoneOffsetMinutes, exit: record.exit, issues: record.issues,
@@ -470,6 +568,12 @@ export class DiagnosticReportService {
       `Classification: ${record.summary.kind}`, `Exit: ${record.exit?.hex ?? 'unavailable'} ${record.exit?.name ?? ''}`,
       `Player-declared incident: ${record.context.playerReportedCrash === true ? 'yes' : 'no'}${record.context.playerReportedAt ? ` (${record.context.playerReportedAt})` : ''}`,
       'A transport stall or unavailable exit code does not establish a native crash.',
+      'Debug sessions: performance.jsonl(.1) contains approximately one-second process/system resource samples; it is not a frame-time trace.',
+      'frame-times.jsonl(.1) contains measured frame/presentation timings only when the optional collector succeeded. Check frame-times-summary.json and its coverage/status before interpreting missing data.',
+      'performance-summary.json and frame-times-summary.json describe their respective collectors. A missing or unavailable frame collector does not mean the game ran smoothly.',
+      'KillFeed/GFxWrap/asset-load logs can be compared by timestamps with debug evidence. Coincidence with a kill does not establish that the killfeed or custom assets caused a stutter.',
+      'Client game logs may use local time; compare the launch UTC offset and any internal millisecond timestamp. Shared logs are bounded at exit; session-owned debug evidence is frozen after collectors finish.',
+      'Debug JSONL: up to 16 MiB per file (including each rotation separately), summaries up to 64 KiB, separate total budget 66 MiB. Invalid/incomplete JSON rows are omitted and declared in manifest issues.',
       'Text logs are bounded and sanitized. Command lines, environment and credential files are excluded.',
       'Binary memory dumps cannot be sanitized and may contain credentials, private messages or other process memory.',
       'The crash-report button includes available memory dumps. Developer exports may omit them; consult manifest.json.',
@@ -526,7 +630,9 @@ export class DiagnosticReportService {
         files.push({ name: 'NOTES.txt', bytes: notes.length, sha256: createHash('sha256').update(notes).digest('hex') });
         const manifest = { schemaVersion: 1, reportId: id, exportedAt: new Date().toISOString(), launcherVersion: record.summary.launcherVersion,
           files, issues, omissions: options.includeDumps ? [] : dumps.map((dump) => ({ source: `dumps/${dump.name}`, reason: 'binary_dump_not_selected' })),
-          limits: { textBytesPerFile: FILE_LIMIT, textBytesTotal: TOTAL_LIMIT, textFileCount: FILE_COUNT },
+          limits: { textBytesPerFile: FILE_LIMIT, textBytesTotal: TOTAL_LIMIT, textFileCount: FILE_COUNT,
+            debugJsonlBytesPerFile: DEBUG_JSONL_LIMIT, debugSummaryBytesPerFile: DEBUG_SUMMARY_LIMIT,
+            debugBytesTotal: DEBUG_TOTAL_LIMIT, debugFileCount: DEBUG_FILES.size, debugJsonlBytesPerRow: DEBUG_LINE_LIMIT },
           containsUnredactedProcessMemory: options.includeDumps && dumps.length > 0,
           manifestHashNote: 'The manifest lists every payload file; it cannot contain its own SHA-256.' };
         zip.addBuffer(Buffer.from(JSON.stringify(manifest, null, 2) + '\n'), 'manifest.json');

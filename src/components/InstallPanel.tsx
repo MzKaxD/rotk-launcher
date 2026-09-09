@@ -16,6 +16,10 @@ interface InstallPanelProps {
   onVerifyAssets(): void;
   onRestoreAssets(): void;
   onToggleAssetSync(enabled: boolean): void;
+  debugSessionBusy: boolean;
+  debugSessionFailed: boolean;
+  debugSessionLocked: boolean;
+  onToggleDebugSession(enabled: boolean): void;
 }
 
 function shortPath(value: string | null, emptyLabel: string): string {
@@ -41,6 +45,10 @@ export function InstallPanel({
   onVerifyAssets,
   onRestoreAssets,
   onToggleAssetSync,
+  debugSessionBusy,
+  debugSessionFailed,
+  debugSessionLocked,
+  onToggleDebugSession,
 }: InstallPanelProps) {
   const { copy } = useI18n();
   const hasSource = Boolean(snapshot.selection.sourceRoot);
@@ -60,6 +68,13 @@ export function InstallPanel({
   const assetPercentage = assetSync.progress && assetSync.progress.totalBytes > 0
     ? Math.min(100, Math.max(0, (assetSync.progress.completedBytes / assetSync.progress.totalBytes) * 100))
     : 0;
+  const debugSession = snapshot.debugSession;
+  const debugCopy = copy.diagnostics.debug;
+  const debugStatus = debugSessionBusy ? debugCopy.saving
+    : debugSessionFailed ? debugCopy.settingFailed
+      : debugSession?.status && debugSession.status !== "idle" ? debugCopy[debugSession.status]
+        : debugSession?.enabled ? debugCopy.enabled : null;
+  const debugError = !debugSessionBusy && (debugSessionFailed || debugSession?.status === "error");
 
   return (
     <AnimatePresence>
@@ -189,6 +204,26 @@ export function InstallPanel({
                 <span>{usesExistingClient ? "02" : "03"}</span>
               </button>
             )}
+
+            <section className="debug-session-settings" aria-labelledby="debug-session-title" aria-busy={debugSessionBusy || debugSession?.status === "preparing"}>
+              <h3 id="debug-session-title">{debugCopy.title}</h3>
+              <label className="debug-session-settings__toggle">
+                <input
+                  type="checkbox"
+                  checked={debugSession?.enabled ?? false}
+                  disabled={debugSessionLocked}
+                  aria-describedby="debug-session-description"
+                  onChange={(event) => onToggleDebugSession(event.target.checked)}
+                />
+                <span>{debugCopy.enable}</span>
+              </label>
+              <p id="debug-session-description">{debugCopy.description}</p>
+              {debugStatus && (
+                <p className={`debug-session-settings__status${debugError ? " is-error" : ""}`} role={debugError ? "alert" : "status"}>
+                  {debugStatus}
+                </p>
+              )}
+            </section>
 
             {snapshot.installationRoot && !installing && (
               <section className="asset-section" aria-label={copy.assets.title}>

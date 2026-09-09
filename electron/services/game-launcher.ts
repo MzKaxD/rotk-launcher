@@ -59,6 +59,7 @@ export interface LaunchRequest {
 }
 
 export interface GameLaunchDiagnostics {
+  onPreparing?(): Promise<void>;
   onIdentity(identity: { displayName: string; steamId: string }): void;
   onSpawned(pid: number): void;
   onOutput(stream: "stdout" | "stderr", text: string): void;
@@ -311,6 +312,10 @@ export class GameLauncher {
         sessionGateway.createSessionUrl,
         launchIdentity,
       );
+
+      // Capture the prepared asset/configuration state before the first frame.
+      // The freshness check below also covers time spent collecting diagnostics.
+      await Promise.resolve().then(() => request.diagnostics?.onPreparing?.()).catch(() => undefined);
 
       // Client preparation may outlive the short launch ticket on a first run
       // or a slow disk. Refresh only after that expensive work, then rewrite

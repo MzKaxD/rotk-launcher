@@ -1,4 +1,4 @@
-# Rapports de crash — launcher ROTK 2.0.7
+# Rapports de crash et sessions Debug — launcher ROTK 2.0.7
 
 Cette fonctionnalité est préparée pour **2.0.7**. Cette documentation accompagne
 une version de travail **non publiée** : elle ne signifie pas que la mise à jour
@@ -37,6 +37,27 @@ heure de Paris, retour au bureau ». Ces précisions aident à retrouver l’inc
 Un rapport sans dump reste utile ; il ne faut pas recréer artificiellement un
 crash pour obtenir un fichier.
 
+## Joueur : enregistrer une session avec des stutters
+
+1. Avant de lancer le jeu, ouvre **Paramètres → Debug** et coche
+   **Enregistrer ma session de jeu**.
+2. Lance le jeu et reproduis le problème normalement.
+3. À la fermeture du jeu, même sans crash, le launcher prépare automatiquement
+   le ZIP et ouvre **Téléchargements → ROTK-Rapports** avec le fichier sélectionné.
+   Envoie ce ZIP à l'administrateur.
+
+Le nom est `ROTK-session-DATE-ID8-unique.zip`. La case est désactivée par défaut,
+mémorisée pour les prochaines parties et verrouillée pendant la session. Décoche-la
+après tes essais si tu ne souhaites plus enregistrer les parties suivantes.
+Il s'agit d'un enregistrement technique, sans vidéo, microphone ou saisie clavier.
+La fenêtre du launcher peut être fermée : son processus reste actif pendant le jeu
+et jusqu'à la fin de la préparation. Si Windows ou le launcher s'arrête brutalement,
+la dernière session Debug interrompue est récupérée au redémarrage si ses fichiers
+existent encore ; le rapport identifie cette interruption.
+
+Si la préparation échoue, les preuves déjà collectées restent accessibles par
+**J'ai crashé**. Aucun rapport n'est envoyé automatiquement.
+
 ## Ce que contient le ZIP
 
 La présence de chaque pièce dépend de ce qui était disponible pour la session.
@@ -50,6 +71,11 @@ La présence de chaque pièce dépend de ce qui était disponible pour la sessio
 | `manifest.json` | Identifiant et date d’export, fichiers avec taille et SHA-256, limites, problèmes de collecte et omissions, indicateur `containsUnredactedProcessMemory`. Le manifeste ne contient pas sa propre empreinte. |
 | `events.jsonl` | Chronologie du launcher pour cette session : démarrage du jeu, sortie, demande de capture, portions de stdout/stderr, erreurs du launcher enregistrées. |
 | `native-events.jsonl` et éventuellement `.1` | Attachement du helper, exceptions, compteurs, modules et versions, mesures mémoire/CPU, captures réussies ou échouées et sortie native. `.1` est le journal précédent. |
+| `performance-summary.json` | En mode Debug : synthèse des compteurs du processus, pics, couverture, coût de collecte et limites. |
+| `performance.jsonl` et éventuellement `.1` | En mode Debug : mesures du processus environ chaque seconde, dates UTC et horloge monotone QPC. |
+| `frame-times-summary.json` | Disponibilité de PresentMon, raisons d'échec éventuelles, statistiques des intervalles de présentation par swapchain et pics. |
+| `frame-times.jsonl` et éventuellement `.1` | Événements de présentation réellement observés pour ce PID, avec QPC et données numériques sélectionnées. |
+| `client-game-KillFeed-….log`, `client-game-GFxWrap-….log` et autres journaux reconnus | Journaux du dossier `Logs` du jeu : killfeed, Scaleform/GFx, UI, échecs de chargement d'assets et erreurs de packs, lorsqu'ils existent et ont été écrits pendant cette session. |
 | `client-local-….log`, `client-failure-….log`, `client-native-….log` et extensions similaires | Extraits des journaux autorisés du jeu, associés à cette session. Le suffixe évite d’exposer le chemin original. |
 | `dumps/crash-….dmp` | Minidump d’une exception fatale observée, si la capture a réussi. Les dumps disponibles sont inclus dans le ZIP créé par le bouton. |
 | `dumps/snapshot-….dmp`, éventuellement `-full.dmp` | Capture de l’état du processus lorsqu’elle est disponible. Le suffixe `full` identifie une capture mémoire complète issue du mécanisme technique décrit plus bas. |
@@ -64,6 +90,11 @@ Dans `report.json`, consulter notamment :
   heure UTC du clic. La classification et le code de sortie observés sont conservés ;
 - `context.binaries` : taille, SHA-256 et date de modification des exécutables et
   DLL ciblés ; une entrée `unavailable` n’est pas une preuve de modification ;
+- `context.debugSessionEnabled` et `context.clientContext` : mode de cette session,
+  état de synchronisation des assets, ledger, fichiers observés et options graphiques
+  autorisées. Les hash déclarés par le ledger sont distincts des hash réellement
+  mesurés ; les gros packs sont inventoriés par taille/date pour éviter de les relire
+  pendant la partie. Les petits fichiers UI sélectionnés peuvent être hashés ;
 - `context.systemInfo` et éventuellement `systemInfoAtCapture` : Windows, CPU,
   RAM, carte graphique et pilote lorsque l’interrogation Windows a réussi ;
 - `context.windowsEvents` : événements Windows Application Error, Hang et WER
@@ -116,6 +147,57 @@ jeu, la disponibilité physique/engagée du système et le CPU toutes les cinq
 secondes. Ils peuvent appuyer une hypothèse de pression mémoire ou de blocage,
 sans remplacer l’analyse des piles et du code.
 
+## Administrateur : stutters, killfeed et assets
+
+La session commence avant le démarrage du processus. L'inventaire des binaires,
+la lecture des options graphiques et la requête système sont réalisés avant le
+spawn ; les compteurs natifs et PresentMon démarrent dès que le PID existe. Les
+premiers événements précédant leur attachement peuvent donc manquer. Les heures
+et statuts permettent de vérifier la couverture au lieu de supposer qu'elle est complète.
+
+Commencer par les deux fichiers `*-summary.json`. Les compteurs natifs à une
+seconde décrivent CPU (normalisé sur tous les processeurs et équivalent un cœur),
+mémoire privée/résidente, fautes de pages, I/O, threads et pression mémoire système.
+Les fautes de pages combinent fautes matérielles et logicielles ; les I/O ne sont
+pas uniquement des accès au disque. Ces échantillons ne mesurent pas la durée
+de chaque image ni le thread responsable d'un ralentissement.
+
+PresentMon fournit séparément les intervalles de présentation et, lorsqu'elles
+existent, des mesures GPU/affichage. Les statistiques restent séparées par
+swapchain : additionner toutes les chaînes de présentation créerait de faux FPS.
+Les percentiles issus d'un histogramme sont des bornes de classes, pas des valeurs
+exactes. Les pics absolus et relatifs sont des candidats à examiner ; menus,
+alt-tab, limiteur de FPS ou attente normale peuvent aussi créer un intervalle long.
+
+Windows peut refuser ETW avec les droits courants. Le launcher ne déclenche pas
+d'élévation de privilèges et ne modifie pas de groupe/service Windows. Le résumé
+indique alors `unavailable` et sa raison ; l'absence de mesures PresentMon ne
+signifie pas l'absence de stutters. CPU, mémoire, exceptions et journaux disponibles
+restent collectés. Aucun FPS synthétique n'est calculé à partir des échantillons CPU.
+
+Pour rapprocher un pic d'un kill :
+
+1. Identifier sa swapchain, son QPC et sa durée dans la synthèse PresentMon ou le
+   journal. Utiliser les ancres UTC/QPC et la fréquence QPC du journal natif pour
+   rapprocher les horloges sur ce PC. L'heure UTC de **réception** du flux PresentMon
+   peut être retardée par son buffering : ce n'est pas l'heure exacte de l'image.
+2. Examiner `KillFeed`, `GFxWrap`, `uiDB`, `FailedLoadAssets`, `FailedSyncLoadAssets`
+   et `ContentPackErrors` autour de l'événement. Les lignes du client peuvent employer
+   une date locale et un compteur interne en millisecondes ; conserver ce compteur,
+   vérifier son origine et appliquer le décalage horaire indiqué par le rapport.
+3. Comparer plusieurs kills avec et sans pic. Refaire une session avec assets ROTK
+   et une session stock, sur le même PC et avec Debug et les options graphiques
+   identiques. Vérifier `context.clientContext` : une case de synchronisation
+   désactivée ne prouve pas à elle seule que les anciens fichiers ont été restaurés.
+4. Corréler avec les journaux serveur du même joueur/match, puis analyser les
+   événements UI/chargement et le code correspondant. Un pic simultané à un kill
+   justifie une piste ; il ne prouve pas que le rendu de la killfeed est la cause.
+
+Cette version prépare les preuves nécessaires. Elle ne corrige pas encore une
+cause de stutter démontrée et ne fournit pas un profil d'appels CPU/GPU complet.
+Le coût de l'instrumentation peut modifier le timing ; comparer les deux variantes
+avec la même instrumentation et contrôler les pertes/limites dans les résumés.
+
 ## Administrateur : ouvrir le dump avec WinDbg
 
 Extraire le ZIP dans un dossier privé, puis ouvrir le `.dmp` avec **WinDbg → File
@@ -165,8 +247,8 @@ peuvent aider à distinguer une attente stable d’un traitement lent.
 
 La capture automatique utilise un **minidump**, jamais un dump complet. La
 collecte des exceptions, registres, modules et mesures mémoire/CPU reste active
-dans le mécanisme de diagnostic. Le parcours joueur est limité au bouton
-**J’ai crashé** ; il ne propose ni réglages de capture ni sélection de dump complet.
+dans le mécanisme de diagnostic. Le parcours joueur propose **J’ai crashé** et la
+case **Debug** pour les prochaines sessions ; il ne demande aucune sélection de dump complet.
 
 Le backend et le helper conservent une commande de **dump mémoire complet** pour
 une intervention technique explicite. Elle peut être utile pour examiner un
@@ -201,6 +283,14 @@ ajoutent. Les omissions et troncatures sont décrites dans le manifeste. Le help
 fait tourner son journal natif autour de 4 Mio avec une sauvegarde ; l’export peut
 donc n’en conserver que les extraits bornés. Les dumps ont leurs propres limites
 et ne sont pas réduits au budget des textes.
+
+Les journaux Debug ont un budget distinct : deux fichiers de **16 Mio** pour
+les compteurs natifs et deux de **16 Mio** pour les présentations. La rotation
+garde les données récentes ; les synthèses conservent les statistiques agrégées
+de la période observée. Chaque synthèse est bornée à **64 Kio**, et le budget
+d'export Debug à **66 Mio**, en plus des textes et dumps. Les mesures détaillées
+s'arrêtent après **8 heures** ; la capture des exceptions peut continuer. Les
+résumés et `issues` décrivent rotation, troncature, perte et durée réellement observée.
 
 Le minidump vise un budget de 256 Mio ; si la collecte enrichie échoue, le helper
 réessaie une fois avec moins de mémoire indirecte. Ce contrôle utilise les

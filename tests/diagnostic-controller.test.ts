@@ -19,6 +19,14 @@ const mocks = vi.hoisted(() => ({
   observers: [] as ObserverMock[],
   collectSystem: vi.fn<() => Promise<Record<string, unknown>>>(),
   windowsEvents: vi.fn<() => Promise<unknown[]>>(),
+  frameStarts: vi.fn<() => Promise<void>>(),
+  frameStops: vi.fn<() => Promise<void>>(),
+}));
+vi.mock('../electron/services/diagnostic-frame-times.js', () => ({
+  DiagnosticFrameTimes: class {
+    start = mocks.frameStarts;
+    stop = mocks.frameStops;
+  },
 }));
 vi.mock('../electron/services/diagnostic-system.js', () => ({ collectDiagnosticSystemInfo: mocks.collectSystem, collectGameWindowsEvents: mocks.windowsEvents }));
 vi.mock('../electron/services/diagnostic-observer.js', () => ({
@@ -45,6 +53,8 @@ beforeEach(() => {
   mocks.observers.length = 0;
   mocks.collectSystem.mockReset().mockResolvedValue({ os: 'Windows fixture', memoryBytes: 8 * 1024 ** 3 });
   mocks.windowsEvents.mockReset().mockResolvedValue([]);
+  mocks.frameStarts.mockReset().mockResolvedValue(undefined);
+  mocks.frameStops.mockReset().mockResolvedValue(undefined);
 });
 afterEach(async () => {
   for (const root of roots.splice(0)) {
@@ -53,17 +63,133 @@ afterEach(async () => {
   }
 });
 
-async function fixture(enabled = true) {
+async function fixture(enabled = true, debug = false) {
   const root = await mkdtemp(join(tmpdir(), 'rotk-controller-test-')); roots.push(root);
   const onChange = vi.fn();
+  const onDebugReport = vi.fn();
+  const collectClientContext = vi.fn(async () => ({ schemaVersion: 1, assets: { syncEnabled: false }, video: { settings: { MaximumFPS: '500' } } }));
   const controller = new DiagnosticController({ directory: join(root, 'reports'), helperPath: join(root, 'helper.exe'),
-    knownSecrets: () => ['known-player-secret'], onChange });
-  await controller.initialize(enabled);
+    frameTimesPath: join(root, 'presentmon.exe'), exportDirectory: join(root, 'downloads'), collectClientContext,
+    knownSecrets: () => ['known-player-secret'], onChange, onDebugReport });
+  await controller.initialize(enabled, debug);
   const context = { launcherVersion: '2.0.7', serverLabel: 'TEST ONLY', serverId: 'fixture' };
-  return { root, controller, context, onChange };
+  return { root, controller, context, onChange, onDebugReport, collectClientContext };
 }
 
 describe('diagnostic controller and persisted session lifecycle', () => {
+  it('Debug is opt-in: a normal session does not start frame capture or automatically export', async () => {
+    const f = await fixture(), launch = await f.controller.beginLaunch(f.context);
+    await launch.hooks.onPreparing?.();
+    launch.hooks.onSpawned(4242);
+    await launch.hooks.onExit(0, null);
+    expect(mocks.observers[0]?.options.debug).toBe(false);
+    expect(mocks.frameStarts).not.toHaveBeenCalled();
+    expect(f.collectClientContext).not.toHaveBeenCalled();
+    expect(f.onDebugReport).not.toHaveBeenCalled();
+    expect(f.controller.debugState()).toMatchObject({ enabled: false, status: 'idle' });
+  });
+
+  it('captures prepared configuration before launch and creates a real ZIP on normal Debug exit', async () => {
+    const f = await fixture(true, true), launch = await f.controller.beginLaunch(f.context);
+    expect(f.controller.debugState().status).toBe('recording');
+    await launch.hooks.onPreparing?.();
+    expect(f.collectClientContext).toHaveBeenCalledOnce();
+    expect(mocks.frameStarts).not.toHaveBeenCalled();
+    launch.hooks.onSpawned(4242);
+    expect(mocks.observers[0]?.options.debug).toBe(true);
+    expect(mocks.frameStarts).toHaveBeenCalledOnce();
+    const exiting = launch.hooks.onExit(0, null);
+    expect(f.controller.debugState().status).toBe('preparing');
+    expect(f.controller.isBusy()).toBe(true);
+    expect(() => f.controller.setDebugEnabled(false)).toThrow();
+    await exiting;
+    const report = await f.controller.reports.getReport(launch.id);
+    expect(report.summary.kind).toBe('exit');
+    expect(report.context.clientContext).toMatchObject({ assets: { syncEnabled: false } });
+    expect(report.context.debugSessionEnabled).toBe(true);
+    expect(mocks.frameStops).toHaveBeenCalledOnce();
+    expect(f.controller.debugState()).toMatchObject({ enabled: true, status: 'ready', error: null });
+    expect(f.onDebugReport).toHaveBeenCalledOnce();
+    const path = f.onDebugReport.mock.calls[0]![0];
+    expect(path).toMatch(/ROTK-session-.*\.zip$/);
+    expect((await readFile(path)).subarray(0, 2).toString()).toBe('PK');
+    expect(f.controller.isBusy()).toBe(false);
+  });
+
+  it('a missing frame collector does not prevent the automatic report after a native crash', async () => {
+    const f = await fixture(false, true), launch = await f.controller.beginLaunch(f.context);
+    mocks.frameStarts.mockRejectedValue(new Error('Access denied'));
+    launch.hooks.onSpawned(4242);
+    expect(mocks.observers[0]?.options.debug).toBe(true);
+    await launch.hooks.onExit(-1073741819, null);
+    expect((await f.controller.reports.getReport(launch.id)).summary).toMatchObject({ kind: 'crash', exitCodeHex: '0xC0000005' });
+    expect(f.onDebugReport).toHaveBeenCalledOnce();
+    expect(f.controller.debugState().status).toBe('ready');
+  });
+
+  it('exports a Debug launch failure even when no client process was started', async () => {
+    const f = await fixture(true, true), launch = await f.controller.beginLaunch(f.context);
+    await f.controller.launchFailed(launch.id, new Error('Launcher version rejected'));
+    expect(mocks.frameStarts).not.toHaveBeenCalled();
+    expect((await f.controller.reports.getReport(launch.id)).summary.kind).toBe('launch-error');
+    expect(f.onDebugReport).toHaveBeenCalledOnce();
+  });
+
+  it('releases the session and preserves evidence when automatic ZIP creation fails', async () => {
+    const f = await fixture(true, true), launch = await f.controller.beginLaunch(f.context);
+    const exportSpy = vi.spyOn(f.controller.reports, 'exportReport').mockRejectedValueOnce(new Error('Disk full'));
+    launch.hooks.onSpawned(4242);
+    await launch.hooks.onExit(0, null);
+    expect(f.controller.debugState().status).toBe('error');
+    expect(f.controller.isBusy()).toBe(false);
+    expect((await f.controller.state()).recordingId).toBeNull();
+    expect(f.onDebugReport).not.toHaveBeenCalled();
+    exportSpy.mockRestore();
+    const retry = await f.controller.reportCrash(join(f.root, 'downloads'), f.context);
+    expect((await readFile(retry.path)).subarray(0, 2).toString()).toBe('PK');
+    f.controller.setDebugEnabled(false);
+  });
+
+  it('waits for an in-flight collector startup before exporting and never starts a late collector', async () => {
+    const started = deferred<void>();
+    const f = await fixture(true, true), launch = await f.controller.beginLaunch(f.context);
+    mocks.frameStarts.mockReturnValue(started.promise);
+    launch.hooks.onSpawned(4242);
+    const exiting = launch.hooks.onExit(0, null);
+    await vi.waitFor(() => expect(mocks.observers[0]?.stop).toHaveBeenCalledOnce());
+    expect(f.onDebugReport).not.toHaveBeenCalled();
+    started.resolve();
+    await exiting;
+    expect(mocks.frameStops).toHaveBeenCalledOnce();
+    expect(f.onDebugReport).toHaveBeenCalledOnce();
+  });
+
+  it('recovers and exports the latest interrupted Debug session once on restart', async () => {
+    const f = await fixture();
+    const interrupted = await f.controller.reports.beginSession({ ...f.context, debugSessionEnabled: true });
+    const reveal = vi.fn();
+    const recovered = new DiagnosticController({ directory: join(f.root, 'reports'), helperPath: join(f.root, 'helper.exe'),
+      exportDirectory: join(f.root, 'downloads'), knownSecrets: () => [], onChange: () => {}, onDebugReport: reveal });
+    await recovered.initialize(true, false);
+    expect(reveal).toHaveBeenCalledOnce();
+    expect(recovered.debugState()).toMatchObject({ enabled: false, status: 'ready' });
+    expect((await recovered.reports.getReport(interrupted.id)).summary.kind).toBe('interrupted');
+    await recovered.initialize(true, false);
+    expect(reveal).toHaveBeenCalledOnce();
+  });
+
+  it('recovers a Debug crash when the launcher stopped after observing exit but before export', async () => {
+    const f = await fixture();
+    const crashed = await f.controller.reports.beginSession({ ...f.context, debugSessionEnabled: true });
+    await f.controller.reports.finalizeSession(crashed.id, { exitCode: -1073741819 });
+    const reveal = vi.fn();
+    const recovered = new DiagnosticController({ directory: join(f.root, 'reports'), helperPath: join(f.root, 'helper.exe'),
+      exportDirectory: join(f.root, 'downloads'), knownSecrets: () => [], onChange: () => {}, onDebugReport: reveal });
+    await recovered.initialize(true, true);
+    expect(reveal).toHaveBeenCalledOnce();
+    expect((await recovered.reports.getReport(crashed.id)).summary).toMatchObject({ kind: 'crash', exitCodeHex: '0xC0000005' });
+  });
+
   it('preserves the Windows startup crash code when launch also reports a generic startup failure', async () => {
     const f = await fixture(), launch = await f.controller.beginLaunch(f.context);
     launch.hooks.onSpawned(4242);

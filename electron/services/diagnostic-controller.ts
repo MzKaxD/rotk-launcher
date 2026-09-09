@@ -3,10 +3,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { DiagnosticCaptureRequest, DiagnosticState } from "../../shared/diagnostics.js";
+import type { DebugSessionSummary } from "../../shared/contracts.js";
 import type { GameLaunchDiagnostics } from "./game-launcher.js";
 import { DiagnosticObserver } from "./diagnostic-observer.js";
 import { DiagnosticReportService, type DiagnosticSessionContext } from "./diagnostic-reports.js";
 import { collectDiagnosticSystemInfo, collectGameWindowsEvents } from "./diagnostic-system.js";
+import { DiagnosticFrameTimes } from "./diagnostic-frame-times.js";
 
 interface ActiveRecording {
   id: string;
@@ -16,6 +18,10 @@ interface ActiveRecording {
   outputBytes: number;
   pid: number | null;
   finalizing: Promise<void> | null;
+  debug: boolean;
+  prepared: boolean;
+  frames: DiagnosticFrameTimes | null;
+  frameStart: Promise<void>;
 }
 
 async function binaryInventory(root: string | undefined): Promise<Record<string, unknown>[]> {
@@ -39,6 +45,7 @@ export class DiagnosticController {
   private active: ActiveRecording | null = null;
   private busy = false;
   private enabled = true;
+  private debug: DebugSessionSummary = { enabled: false, status: "idle", fileName: null, error: null };
   private error: string | null = null;
   private changeTimer: NodeJS.Timeout | null = null;
 
@@ -47,12 +54,35 @@ export class DiagnosticController {
     helperPath: string;
     knownSecrets: () => string[];
     onChange: (state: DiagnosticState) => void;
+    frameTimesPath?: string;
+    exportDirectory?: string;
+    collectClientContext?: (context: DiagnosticSessionContext) => Promise<Record<string, unknown>>;
+    onDebugChange?: () => void;
+    onDebugReport?: (path: string) => void;
   }) {
     this.reports = new DiagnosticReportService({ directory: options.directory, knownSecrets: options.knownSecrets, onChange: () => this.changed() });
   }
 
-  async initialize(enabled: boolean): Promise<void> { this.enabled = enabled; await this.reports.initialize(); }
-  isBusy(): boolean { return this.busy; }
+  async initialize(enabled: boolean, debugEnabled = false): Promise<void> {
+    this.enabled = enabled; this.debug.enabled = debugEnabled; await this.reports.initialize();
+    // Recover the latest opted-in session if the launcher or Windows stopped
+    // before its archive was created. Already exported sessions are not repeated.
+    const latest = (await this.reports.listReports()).find((report) => report.kind !== "manual");
+    if (latest?.endedAt && this.options.exportDirectory) {
+      const record = await this.reports.getReport(latest.id);
+      if (record.context.debugSessionEnabled === true && !record.context.debugExportedFile) {
+        this.debug.status = "preparing";
+        try { await this.exportDebugSession(latest.id); }
+        catch { this.debug.status = "error"; this.debug.error = "debug-export-failed"; }
+      }
+    }
+  }
+  isBusy(): boolean { return this.busy || Boolean(this.active?.finalizing) || this.debug.status === "preparing"; }
+  debugState(): DebugSessionSummary { return { ...this.debug }; }
+  setDebugEnabled(enabled: boolean): void {
+    if (this.active || this.isBusy()) throw new Error("Cannot change Debug during a game session");
+    this.debug = { enabled, status: "idle", fileName: null, error: null }; this.changed();
+  }
   async state(): Promise<DiagnosticState> {
     return { reports: await this.reports.listReports(), recordingId: this.active?.id ?? null, busy: this.busy,
       advancedCaptureEnabled: this.enabled, error: this.error };
@@ -62,6 +92,7 @@ export class DiagnosticController {
     this.changeTimer = setTimeout(() => {
       this.changeTimer = null;
       void this.state().then(this.options.onChange).catch(() => undefined);
+      this.options.onDebugChange?.();
     }, 100);
   }
   setEnabled(enabled: boolean): void {
@@ -71,16 +102,23 @@ export class DiagnosticController {
 
   async beginLaunch(context: DiagnosticSessionContext): Promise<{ id: string; hooks: GameLaunchDiagnostics }> {
     if (this.active) throw new Error("A game diagnostic session is still being finalized");
-    const created = await this.reports.beginSession(context);
+    const debug = this.debug.enabled;
+    const created = await this.reports.beginSession({ ...context, debugSessionEnabled: debug }).catch((error) => {
+      if (debug) { this.debug.status = "error"; this.debug.error = "debug-start-failed"; this.changed(); }
+      throw error;
+    });
     const record = await this.reports.getReport(created.id);
     const active: ActiveRecording = { id: created.id, observer: null, startedAt: record.summary.startedAt,
-      systemInfo: Promise.resolve(), outputBytes: 0, pid: null, finalizing: null };
+      systemInfo: Promise.resolve(), outputBytes: 0, pid: null, finalizing: null,
+      debug, prepared: false, frames: null, frameStart: Promise.resolve() };
     this.active = active;
-    const captureEnabled = this.enabled;
+    if (debug) this.debug = { enabled: true, status: "recording", fileName: null, error: null };
+    const captureEnabled = this.enabled || debug;
     try {
       await this.reports.updateSession(active.id, { captureStatus: captureEnabled ? "pending" : "disabled" });
     } catch (error) {
       if (this.active === active) this.active = null;
+      if (debug) { this.debug.status = "error"; this.debug.error = "debug-start-failed"; }
       this.changed();
       throw error;
     }
@@ -90,6 +128,18 @@ export class DiagnosticController {
     return {
       id: created.id,
       hooks: {
+        onPreparing: async () => {
+          active.prepared = true;
+          const startedAt = new Date().toISOString();
+          await this.reports.appendEvent(active.id, "client_prepared", { at: startedAt });
+          const [binaries, clientContext] = await Promise.all([
+            binaryInventory(context.installationRoot),
+            debug ? this.options.collectClientContext?.(context).catch(() => ({ status: "unavailable" })) : undefined,
+            active.systemInfo,
+          ]);
+          await this.reports.updateSession(active.id, { binaries, binariesCapturedAt: new Date().toISOString(),
+            ...(debug ? { clientContext: clientContext ?? { status: "unavailable" } } : {}) });
+        },
         onIdentity: (identity) => {
           void this.reports.updateSession(active.id, { playerName: identity.displayName, steamId: identity.steamId }).catch(() => undefined);
         },
@@ -97,12 +147,19 @@ export class DiagnosticController {
           active.pid = pid;
           // Client preparation repairs the proxies. Inventory the actual files
           // used by this process, after preparation rather than before it.
-          active.systemInfo = Promise.all([active.systemInfo, binaryInventory(context.installationRoot)])
+          if (!active.prepared) active.systemInfo = Promise.all([active.systemInfo, binaryInventory(context.installationRoot)])
             .then(async ([, binaries]) => { await this.reports.updateSession(active.id, { binaries, binariesCapturedAt: new Date().toISOString() }); }).catch(() => undefined);
           void this.reports.updateSession(active.id, { pid, processStartedAt: new Date().toISOString() }).catch(() => undefined);
           void this.reports.appendEvent(active.id, "game_spawned", { pid }).catch(() => undefined);
+          if (debug && this.options.frameTimesPath) {
+            active.frames = new DiagnosticFrameTimes({ executable: this.options.frameTimesPath, pid,
+              directory: created.directory, sessionId: active.id });
+            active.frameStart = active.frames.start().catch(async () => {
+              await this.reports.updateSession(active.id, { warnings: ["Frame timing capture was unavailable; process counters and logs remain available."] });
+            }).catch(() => undefined);
+          }
           if (!captureEnabled) return;
-          active.observer = new DiagnosticObserver({ executable: this.options.helperPath, pid, directory: created.directory,
+          active.observer = new DiagnosticObserver({ executable: this.options.helperPath, pid, directory: created.directory, debug,
             onEvent: (event) => {
               if (event.event === "attached" || event.event === "attach-failed") {
                 void this.reports.appendEvent(active.id, "native_observer_status", event).catch(() => undefined);
@@ -137,11 +194,18 @@ export class DiagnosticController {
   private finish(active: ActiveRecording, code: number | null, signal: NodeJS.Signals | null, error?: unknown): Promise<void> {
     if (active.finalizing) return active.finalizing;
     const endedAt = new Date().toISOString();
+    if (active.debug) { this.debug.status = "preparing"; this.changed(); }
     active.finalizing = (async () => {
       try {
         await this.reports.appendEvent(active.id, "game_exited", { code, signal, endedAt });
         await this.reports.finalizeSession(active.id, { exitCode: code, signal, error, endedAt });
         await active.observer?.drain();
+        // Stop writers before freezing/exporting their last samples and summaries.
+        await active.observer?.stop().catch(() => undefined);
+        active.observer = null;
+        await active.frameStart;
+        await active.frames?.stop().catch(() => undefined);
+        active.frames = null;
         const finalRecord = await this.reports.getReport(active.id);
         if (finalRecord.summary.captureStatus === "pending") {
           await this.reports.updateSession(active.id, { captureStatus: "unavailable",
@@ -151,13 +215,33 @@ export class DiagnosticController {
         const windowsEvents = await collectGameWindowsEvents(active.pid, active.startedAt, endedAt);
         await this.reports.updateSession(active.id, { windowsEvents, processEndedAt: endedAt });
         await this.reports.collectSession(active.id);
+        if (active.debug) await this.exportDebugSession(active.id);
       } finally {
         await active.observer?.stop().catch(() => undefined);
+        await active.frames?.stop().catch(() => undefined);
         if (this.active === active) this.active = null;
         this.changed();
       }
-    })().catch(() => { this.error = "Diagnostic collection was incomplete. Existing evidence is still available."; this.changed(); });
+    })().catch(() => {
+      this.error = "Diagnostic collection was incomplete. Existing evidence is still available.";
+      if (active.debug) { this.debug.status = "error"; this.debug.error = "debug-export-failed"; }
+      this.changed();
+    });
     return active.finalizing;
+  }
+
+  private async exportDebugSession(id: string): Promise<void> {
+    if (!this.options.exportDirectory) throw new Error("Debug export directory is unavailable");
+    await mkdir(this.options.exportDirectory, { recursive: true });
+    const report = await this.reports.getReport(id);
+    const fileName = `ROTK-session-${report.summary.startedAt.slice(0, 10)}-${id.slice(0, 8)}-${randomUUID().slice(0, 8)}.zip`;
+    const path = join(this.options.exportDirectory, fileName);
+    await this.reports.exportReport(id, path, { includeDumps: true,
+      description: "Session enregistrée avec Debug activé avant le lancement. Comparer la chronologie des performances et les journaux du client ; une coïncidence ne prouve pas la cause du stutter." });
+    await this.reports.updateSession(id, { debugExportedFile: fileName, debugExportedAt: new Date().toISOString() });
+    this.debug = { ...this.debug, status: "ready", fileName, error: null };
+    try { this.options.onDebugReport?.(path); } catch { /* The completed ZIP remains available. */ }
+    this.changed();
   }
 
   async capture(request: DiagnosticCaptureRequest, context: DiagnosticSessionContext): Promise<import("../../shared/diagnostics.js").DiagnosticReportSummary> {
