@@ -104,6 +104,13 @@ The launcher refuses the whole pack if any rule fails — nothing is written hal
 
 ## 5. Publishing checklist
 
+For the four main-menu settings pages and overlapping titles, use the
+[menu settings preparation tool](menu-settings-assets.md). It adds the repaired
+`ui_x64_2.pack2` to the current feed and payload manifest without removing other
+assets. This update uses an explicit `.payload` ZIP entry and requires publishing
+both manifests and coordinating the server integrity policy; merging the tool
+alone does not distribute the fix.
+
 1. Run `scripts/package-asset-packs.ps1 -SourceDirectory <packs dir>
    -OutputDirectory <out> -PackVersion X.Y.Z`. It zips **each file into its own
    payload**, enforces the section 4 caps, and writes both `feed.json` and the
