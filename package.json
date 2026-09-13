@@ -17,7 +17,11 @@
     "build:renderer": "vite build",
     "build": "npm run verify:presentmon && npm run build:diagnostics && npm run typecheck && npm run test && npm run build:electron && npm run build:renderer",
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
-    "test": "npm run test:native:crouch && npm run test:native:diagnostics && vitest run",
+    "test": "npm run test:assets:admin-panel && npm run test:assets:menu-settings && npm run test:native:crouch && npm run test:native:diagnostics && vitest run",
+    "test:assets:admin-panel": "node --test scripts/tests/admin-panel-assets.test.mjs",
+    "assets:prepare-admin-panel": "node scripts/prepare-admin-panel-assets.mjs",
+    "test:assets:menu-settings": "node --test scripts/tests/menu-settings-assets.test.mjs",
+    "assets:prepare-menu-settings": "node scripts/prepare-menu-settings-assets.mjs",
     "test:watch": "vitest",
     "predist": "npm run prepare:vivox",
     "predist:dir": "npm run prepare:vivox",
@@ -30,7 +34,10 @@
     "verify:vivox-runtime": "node scripts/verify-vivox-runtime.mjs",
     "build:diagnostics": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-diagnostics.ps1",
     "test:native:diagnostics": "node --test native/diagnostics/tests/integration.mjs",
-    "verify:presentmon": "node scripts/verify-presentmon.mjs"
+    "verify:presentmon": "node scripts/verify-presentmon.mjs",
+    "pretest": "npm run test:assets:ranks",
+    "test:assets:ranks": "node --test scripts/tests/rank-menu-assets.test.mjs",
+    "assets:prepare-ranks": "node scripts/prepare-rank-menu-assets.mjs"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.2.8",

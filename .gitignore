@@ -8,6 +8,8 @@ coverage/
 .dev-data/
 /devdata
 *.log
+*.pack2
+*.payload
 *.tsbuildinfo
 .DS_Store
 Thumbs.db

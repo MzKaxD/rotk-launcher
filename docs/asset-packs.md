@@ -2,6 +2,10 @@
 
 Issue: [#10](https://github.com/MzKaxD/rotk-launcher/issues/10)
 
+For the combined BR1315 rank menu, staff gate and settings update, use the
+[rank menu release recipe](rank-menu-assets.md). Its three packs must be published
+through the coordinated `.payload` archives and paired manifests described there.
+
 ## 1. Overview
 
 The launcher synchronizes custom ROTK assets from a dedicated GitHub repository
@@ -103,6 +107,20 @@ The launcher refuses the whole pack if any rule fails — nothing is written hal
   asset at 2 GiB, which is why big packs ship compressed, one zip per pack.
 
 ## 5. Publishing checklist
+
+For the staff-only **O** panel hotfix, use the
+[dedicated preparation tool](admin-panel-assets.md). It preserves the unchanged
+entries in the current feed and payload manifest while rebuilding only
+`assets_x64_0.pack2`. The general packager below generates a catalog from its
+input directory; do not replace the live catalog with a one-pack catalog when
+other packs must remain installed.
+
+For the four main-menu settings pages and overlapping titles, use the
+[menu settings preparation tool](menu-settings-assets.md). It adds the repaired
+`ui_x64_2.pack2` to the current feed and payload manifest without removing other
+assets. This update uses an explicit `.payload` ZIP entry and requires publishing
+both manifests and coordinating the server integrity policy; merging the tool
+alone does not distribute the fix.
 
 1. Run `scripts/package-asset-packs.ps1 -SourceDirectory <packs dir>
    -OutputDirectory <out> -PackVersion X.Y.Z`. It zips **each file into its own
