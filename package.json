@@ -30,7 +30,10 @@
     "verify:vivox-runtime": "node scripts/verify-vivox-runtime.mjs",
     "build:diagnostics": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-diagnostics.ps1",
     "test:native:diagnostics": "node --test native/diagnostics/tests/integration.mjs",
-    "verify:presentmon": "node scripts/verify-presentmon.mjs"
+    "verify:presentmon": "node scripts/verify-presentmon.mjs",
+    "pretest": "npm run test:assets:ranks",
+    "test:assets:ranks": "node --test scripts/tests/rank-menu-assets.test.mjs",
+    "assets:prepare-ranks": "node scripts/prepare-rank-menu-assets.mjs"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.2.8",

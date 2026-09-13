@@ -2,6 +2,10 @@
 
 Issue: [#10](https://github.com/MzKaxD/rotk-launcher/issues/10)
 
+For the combined BR1315 rank menu, staff gate and settings update, use the
+[rank menu release recipe](rank-menu-assets.md). Its three packs must be published
+through the coordinated `.payload` archives and paired manifests described there.
+
 ## 1. Overview
 
 The launcher synchronizes custom ROTK assets from a dedicated GitHub repository
