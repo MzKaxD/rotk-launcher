@@ -104,6 +104,13 @@ The launcher refuses the whole pack if any rule fails — nothing is written hal
 
 ## 5. Publishing checklist
 
+For the staff-only **O** panel hotfix, use the
+[dedicated preparation tool](admin-panel-assets.md). It preserves the unchanged
+entries in the current feed and payload manifest while rebuilding only
+`assets_x64_0.pack2`. The general packager below generates a catalog from its
+input directory; do not replace the live catalog with a one-pack catalog when
+other packs must remain installed.
+
 1. Run `scripts/package-asset-packs.ps1 -SourceDirectory <packs dir>
    -OutputDirectory <out> -PackVersion X.Y.Z`. It zips **each file into its own
    payload**, enforces the section 4 caps, and writes both `feed.json` and the
