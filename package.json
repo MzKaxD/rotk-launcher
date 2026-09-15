@@ -17,7 +17,7 @@
     "build:renderer": "vite build",
     "build": "npm run verify:presentmon && npm run build:diagnostics && npm run typecheck && npm run test && npm run build:electron && npm run build:renderer",
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
-    "test": "npm run test:assets:admin-panel && npm run test:assets:menu-settings && npm run test:native:crouch && npm run test:native:voice-rank && npm run test:native:diagnostics && vitest run",
+    "test": "npm run test:assets:admin-panel && npm run test:assets:menu-settings && npm run test:assets:voice-volume && npm run test:native:crouch && npm run test:native:voice-rank && npm run test:native:diagnostics && vitest run",
     "test:assets:admin-panel": "node --test scripts/tests/admin-panel-assets.test.mjs",
     "assets:prepare-admin-panel": "node scripts/prepare-admin-panel-assets.mjs",
     "test:assets:menu-settings": "node --test scripts/tests/menu-settings-assets.test.mjs",
@@ -41,7 +41,9 @@
     "test:assets:staff-voice": "node --test scripts/tests/staff-voice-assets.test.mjs",
     "assets:prepare-staff-voice": "node scripts/prepare-staff-voice-assets.mjs",
     "test:assets:ranks": "node --test scripts/tests/rank-menu-assets.test.mjs",
-    "assets:prepare-ranks": "node scripts/prepare-rank-menu-assets.mjs"
+    "assets:prepare-ranks": "node scripts/prepare-rank-menu-assets.mjs",
+    "test:assets:voice-volume": "node --test scripts/tests/voice-volume-assets.test.mjs",
+    "assets:prepare-voice-volume": "node scripts/prepare-voice-volume-release.mjs"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.2.8",
