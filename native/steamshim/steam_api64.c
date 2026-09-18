@@ -195,6 +195,7 @@ static void populate_callback_payload(int callback_id, unsigned char *buffer, si
 static void dispatch_callbacks_by_id(int callback_id, const char *origin, int force_repeat);
 static uintptr_t write_steam_id_return_buffer(const char *method_name, uintptr_t return_buffer, uint64_t steam_id);
 static uint64_t normalize_steam_id_argument(uintptr_t raw_value);
+#include "menu_duo_harness.h"
 
 static const char *get_callback_name(int callback_id) {
     switch (callback_id) {
@@ -338,14 +339,14 @@ static void populate_callback_payload(int callback_id, unsigned char *buffer, si
             break;
         case 505:
             write_u64(buffer, size, 0, g_fake_lobby_id);
-            write_u64(buffer, size, 8, g_fake_steam_id);
+            write_u64(buffer, size, 8, g_menu_duo_callback_member ? g_menu_duo_callback_member : g_fake_steam_id);
             write_u8(buffer, size, 16, 1);
             break;
         case 506:
             write_u64(buffer, size, 0, g_fake_lobby_id);
-            write_u64(buffer, size, 8, g_fake_steam_id);
-            write_u64(buffer, size, 16, g_fake_steam_id);
-            write_u32(buffer, size, 24, 0);
+            write_u64(buffer, size, 8, g_menu_duo_callback_member ? g_menu_duo_callback_member : g_fake_steam_id);
+            write_u64(buffer, size, 16, g_menu_duo_callback_member ? g_menu_duo_callback_member : g_fake_steam_id);
+            write_u32(buffer, size, 24, g_menu_duo_callback_change);
             break;
         case 507:
             write_u64(buffer, size, 0, g_fake_lobby_id);
@@ -1058,6 +1059,8 @@ static uintptr_t steam_matchmaking_get_lobby_member_data(
     }
     if (is_fake_or_self_steam_id(member_steam_id)) {
         value = lookup_fake_lobby_value(key);
+    } else if (g_menu_duo_member && member_steam_id == g_menu_duo_member) {
+        value = menu_duo_member_value(key);
     }
 
     log_line(
@@ -1105,14 +1108,15 @@ static uintptr_t generic_interface_method(DummyObject *self, int index, uintptr_
     }
     if (strcmp(name, "SteamMatchMaking009") == 0 && index == 17) {
         log_line(
-            "SteamMatchMaking009::GetNumLobbyMembers(self=%p, lobby=%p, a2=%p, a3=%p, a4=%p) -> 1",
+            "SteamMatchMaking009::GetNumLobbyMembers(self=%p, lobby=%p, a2=%p, a3=%p, a4=%p) -> %d",
             self,
             (void *)a1,
             (void *)a2,
             (void *)a3,
-            (void *)a4
+            (void *)a4,
+            g_menu_duo_member ? 2 : 1
         );
-        return 1;
+        return g_menu_duo_member ? 2 : 1;
     }
     if (strcmp(name, "SteamMatchMaking009") == 0 && index == 15) {
         log_line(
@@ -1151,7 +1155,9 @@ static uintptr_t generic_interface_method(DummyObject *self, int index, uintptr_
             extra = a4;
         }
 
-        if (member_index < 8) {
+        if (member_index == 1 && g_menu_duo_member) {
+            result = g_menu_duo_member;
+        } else if (member_index == 0 || (!g_menu_duo_member && member_index < 8)) {
             result = g_fake_steam_id;
         }
 
@@ -2339,6 +2345,7 @@ static uintptr_t steamfriends_get_friend_persona_name(DummyObject *self, uintptr
     (void)self; (void)a2; (void)a3; (void)a4;
     uint64_t normalized_steam_id = normalize_steam_id_argument(steam_id);
     const char *name = is_fake_or_self_steam_id(normalized_steam_id) ? get_active_fake_persona_name() : g_fake_empty;
+    if (g_menu_duo_member && normalized_steam_id == g_menu_duo_member) name = g_menu_duo_name;
     log_line("SteamFriends::GetFriendPersonaName(steam_id=%llu) -> %s", (unsigned long long)normalized_steam_id, name[0] ? name : "<empty>");
     return (uintptr_t)name;
 }
@@ -3273,6 +3280,7 @@ __declspec(dllexport) void SteamAPI_RunCallbacks(void) {
     }
     dispatch_boot_callbacks_if_needed("RunCallbacks");
     dispatch_registered_callresults_if_needed("RunCallbacks");
+    poll_menu_duo_harness();
 }
 
 __declspec(dllexport) HSteamUser SteamAPI_GetHSteamUser(void) {
