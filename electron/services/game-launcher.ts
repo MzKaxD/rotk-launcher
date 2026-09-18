@@ -202,6 +202,9 @@ function buildLaunchArguments(
     `server=${serverList(runtime)}`,
     `SteamGatewayUrl=${gatewayCreateSession}`,
     `VivoxGrantUrl=${voiceGrantOrigin}`,
+    // The native stage enumerates this observer-local shim lobby. Steam IDs and
+    // actor IDs are supplied later by the authenticated server/UI bridge.
+    "thirdPartyCommandLine=+connect_lobby109775241000000001",
     `CommandQueue:motd_uri=${runtime.gatewayOrigin}/`,
     `CommandQueue:cb_uri=${runtime.gatewayOrigin}/`,
     `CommandQueue:eula_uri=${runtime.gatewayOrigin}/`,

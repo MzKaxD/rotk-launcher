@@ -44,7 +44,8 @@
     "assets:prepare-ranks": "node scripts/prepare-rank-menu-assets.mjs",
     "test:native:duo-voice": "powershell -NoProfile -ExecutionPolicy Bypass -File native/vivoxproxy/test-duo-group-voice.ps1",
     "test:assets:voice-volume": "node --test scripts/tests/voice-volume-assets.test.mjs",
-    "assets:prepare-voice-volume": "node scripts/prepare-voice-volume-release.mjs"
+    "assets:prepare-voice-volume": "node scripts/prepare-voice-volume-release.mjs",
+    "test:native:menu-duo": "powershell -NoProfile -ExecutionPolicy Bypass -File native/steamshim/test-menu-duo.ps1"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.2.8",

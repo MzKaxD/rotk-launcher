@@ -195,7 +195,7 @@ static void populate_callback_payload(int callback_id, unsigned char *buffer, si
 static void dispatch_callbacks_by_id(int callback_id, const char *origin, int force_repeat);
 static uintptr_t write_steam_id_return_buffer(const char *method_name, uintptr_t return_buffer, uint64_t steam_id);
 static uint64_t normalize_steam_id_argument(uintptr_t raw_value);
-#include "menu_duo_harness.h"
+#include "menu_duo_native.h"
 
 static const char *get_callback_name(int callback_id) {
     switch (callback_id) {
@@ -1078,6 +1078,11 @@ static uintptr_t steam_matchmaking_get_lobby_member_data(
 
 static uintptr_t generic_interface_method(DummyObject *self, int index, uintptr_t a1, uintptr_t a2, uintptr_t a3, uintptr_t a4) {
     const char *name = (self != NULL && self->name != NULL) ? self->name : "GenericInterface";
+    if (strcmp(name, "SteamMatchMaking009") == 0 && index == 26) {
+        int accepted = receive_menu_duo_native((const char *)a2, (size_t)a3, GetTickCount64());
+        log_line("MenuDuo lobby transport bytes=%llu accepted=%d", (unsigned long long)a3, accepted);
+        return accepted;
+    }
     if (strcmp(name, "STEAMUSERSTATS_INTERFACE_VERSION011") == 0 && index == 0) {
         log_line(
             "STEAMUSERSTATS_INTERFACE_VERSION011::RequestCurrentStats(self=%p) -> 1",
@@ -3280,7 +3285,7 @@ __declspec(dllexport) void SteamAPI_RunCallbacks(void) {
     }
     dispatch_boot_callbacks_if_needed("RunCallbacks");
     dispatch_registered_callresults_if_needed("RunCallbacks");
-    poll_menu_duo_harness();
+    poll_menu_duo_native(GetTickCount64());
 }
 
 __declspec(dllexport) HSteamUser SteamAPI_GetHSteamUser(void) {

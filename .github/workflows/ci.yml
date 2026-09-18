@@ -136,6 +136,10 @@ jobs:
             Set-Content -LiteralPath "native\steamshim\dist\steam_api64.dll.sha256" -Encoding ascii
           Write-Host "Shim reproductible : $secondHash"
 
+      - name: Vérifier le roster natif du menu Duo
+        shell: pwsh
+        run: ./native/steamshim/test-menu-duo.ps1
+
       - name: Vérifier les exports du shim
         shell: pwsh
         run: |
