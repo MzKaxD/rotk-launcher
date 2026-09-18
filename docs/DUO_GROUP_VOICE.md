@@ -18,3 +18,10 @@ exercises real WinHTTP requests and token injection for both rooms/ABIs.
 
 Run `npm run prepare:vivox` to rebuild the distributable DLL and run the existing
 native checks. Two-client in-game audio validation remains a release check.
+
+Vivox 5 session-added events leave the legacy URI field empty. The proxy restores
+it from each event's own URI-based session handle, which was set on its authorized
+join request. It must never use a global last-joined room: Proximity and Group can
+complete in either order, including after a lobby/match handoff or a new Duo.
+The native test suite checks both Duo response orders, all 24 permutations of two
+old and two new room events, logout, malformed handles, and SDK string ownership.

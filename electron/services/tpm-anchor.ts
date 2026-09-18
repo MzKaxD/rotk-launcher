@@ -49,16 +49,19 @@ public static class RotkNCrypt {
 `;
 
 /**
- * Opens (or creates, once) the identity key, signs the message passed in
- * ROTK_TPM_NONCE with it, exports the Windows public blob and the TPM2B_PUBLIC
+ * Opens (or creates, once) the identity key, signs the message passed
+ * base64-encoded in ROTK_TPM_MESSAGE_B64 (the binding message carries NUL
+ * separators, which a child's environment cannot), exports the Windows public
+ * blob and the TPM2B_PUBLIC
  * the PCP key blob carries, reads the endorsement key's public part and what
  * it can of the EK certificate chain, and prints one JSON line. .NET Framework
  * 4.x compatible so it runs under the stock Windows PowerShell 5.1.
  */
 const COLLECT_SCRIPT = `
 $ErrorActionPreference = "Stop"
-$nonce = $env:ROTK_TPM_NONCE
-if ([string]::IsNullOrEmpty($nonce)) { throw "no nonce" }
+$encoded = $env:ROTK_TPM_MESSAGE_B64
+if ([string]::IsNullOrEmpty($encoded)) { throw "no message" }
+$data = [Convert]::FromBase64String($encoded)
 ${NCRYPT_INTEROP}
 $provider = [System.Security.Cryptography.CngProvider]::new("Microsoft Platform Crypto Provider")
 if ([System.Security.Cryptography.CngKey]::Exists("${KEY_NAME}", $provider)) {
@@ -72,7 +75,7 @@ if ([System.Security.Cryptography.CngKey]::Exists("${KEY_NAME}", $provider)) {
   $key = [System.Security.Cryptography.CngKey]::Create([System.Security.Cryptography.CngAlgorithm]::ECDsaP256, "${KEY_NAME}", $p)
 }
 $ecdsa = [System.Security.Cryptography.ECDsaCng]::new($key)
-$sig = $ecdsa.SignData([Text.Encoding]::UTF8.GetBytes($nonce), [System.Security.Cryptography.HashAlgorithmName]::SHA256)
+$sig = $ecdsa.SignData($data, [System.Security.Cryptography.HashAlgorithmName]::SHA256)
 $pub = $key.Export([System.Security.Cryptography.CngKeyBlobFormat]::EccPublicBlob)
 $opaque = $key.Export([System.Security.Cryptography.CngKeyBlobFormat]::new("OpaqueKeyBlob"))
 $header = [BitConverter]::ToUInt32($opaque, 4)
@@ -217,7 +220,7 @@ export async function collectTpmAnchor(message: string, options: TpmAnchorOption
   if (process.platform !== "win32" || typeof message !== "string" || message === "") return null;
   const run = options.run ?? ((script: string, env: Record<string, string>) => runPowerShell(script, env, options.timeoutMs ?? 20_000));
   try {
-    return parseTpmAnchorOutput(await run(COLLECT_SCRIPT, { ROTK_TPM_NONCE: message }));
+    return parseTpmAnchorOutput(await run(COLLECT_SCRIPT, { ROTK_TPM_MESSAGE_B64: Buffer.from(message, "utf8").toString("base64") }));
   } catch {
     return null;
   }

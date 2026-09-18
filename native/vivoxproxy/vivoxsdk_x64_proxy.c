@@ -225,6 +225,9 @@ _Static_assert(
     offsetof(rotk_vx_evt_sessiongroup_added, alias_username) == 0x40U,
     "Vivox sessiongroup-added alias offset changed");
 _Static_assert(
+    offsetof(rotk_vx_evt_session_added, session_handle) == 0x30U,
+    "Vivox session-added handle offset changed");
+_Static_assert(
     offsetof(rotk_vx_evt_session_added, uri) == 0x38U,
     "Vivox session-added URI offset changed");
 _Static_assert(
@@ -304,7 +307,6 @@ static vx_free_fn g_free;
 static voice_config g_config;
 static char g_account[GRANT_ACCOUNT_MAX + 1U];
 static char g_account_handle[HUD_HANDLE_BYTES];
-static char g_channel_uri[GRANT_CHANNEL_MAX + 1U];
 static char g_compat_sessiongroup_handle[HUD_HANDLE_BYTES];
 static volatile LONG g_suppress_sessiongroup_added;
 static volatile LONG g_trace_flags;
@@ -1520,9 +1522,6 @@ static BOOL mutate_sessiongroup_context(
         old_session_handle != old_account_handle) {
         (void)g_free(old_session_handle);
     }
-    memcpy(g_channel_uri,
-           grant->channel,
-           strlen(grant->channel) + 1U);
     return TRUE;
 }
 
@@ -1857,15 +1856,18 @@ static BOOL compat_suppress_real_sessiongroup_added(
  * Vivox 5 deliberately leaves evt_session_added::uri empty. BR1315 predates
  * that API change and uses the URI to match the event to its pending session.
  * The proxy gives Vivox 5 a URI-based session handle and restores the same
- * validated channel URI in the legacy field before BR1315 sees the event.
+ * channel URI from that event's handle before BR1315 sees the event. A shared
+ * last-joined URI mixes up overlapping Proximity/Group joins and late events
+ * from an earlier lobby or match.
  */
 static void compat_restore_session_added_uri(void *message) {
 #if defined(ROTK_VIVOX_V5_COMPAT)
     rotk_vx_evt_session_added *event;
     char *uri = NULL;
-    char channel_uri[GRANT_CHANNEL_MAX + 1U];
+    char *session_handle = NULL;
     char *restored_uri;
     size_t uri_bytes = 0U;
+    size_t handle_bytes = 0U;
 
     if (!request_is_accessible(
             message,
@@ -1879,23 +1881,26 @@ static void compat_restore_session_added_uri(void *message) {
         return;
     }
     read_pointer(message, 0x38U, &uri);
-    if (bounded_string(uri, GRANT_CHANNEL_MAX, &uri_bytes) &&
-        uri_bytes != 0U) {
+    if (uri != NULL &&
+        (!bounded_string(uri, GRANT_CHANNEL_MAX, &uri_bytes) || uri_bytes != 0U)) {
         return;
     }
-    AcquireSRWLockShared(&g_voice_lock);
-    memcpy(channel_uri, g_channel_uri, sizeof(channel_uri));
-    ReleaseSRWLockShared(&g_voice_lock);
-    channel_uri[GRANT_CHANNEL_MAX] = '\0';
-    if (channel_uri[0] == '\0') {
+    read_pointer(message, 0x30U, &session_handle);
+    // Match the native join URI bound; leave unrelated SDK handles untouched.
+    if (!bounded_string(session_handle, 63U, &handle_bytes) ||
+        handle_bytes <= 14U ||
+        (memcmp(session_handle, "sip:confctl-d-", 14U) != 0 &&
+         memcmp(session_handle, "sip:confctl-g-", 14U) != 0)) {
         return;
     }
-    restored_uri = g_strdup(channel_uri);
-    SecureZeroMemory(channel_uri, sizeof(channel_uri));
+    restored_uri = g_strdup(session_handle);
     if (restored_uri == NULL) {
         return;
     }
     write_pointer(message, 0x38U, restored_uri);
+    if (uri != NULL) {
+        (void)g_free(uri);
+    }
     proxy_trace_once(
         TRACE_SESSION_URI_RESTORED,
         "[rotk-vivoxproxy] compat: legacy session URI restored");

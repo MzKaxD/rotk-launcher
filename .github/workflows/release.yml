@@ -57,6 +57,16 @@ jobs:
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: 0.15.2
+          # Match CI: compile from a fresh Windows object cache.
+          use-cache: false
+
+      - name: Keep the Zig local cache apart from the global one
+        # setup-zig points the local and global Zig caches at the same folder;
+        # zig cc then loses the object it just compiled when it links
+        # (lld-link: could not open .zig-cache\o\…\crouch_state_cache_test.obj).
+        # A later GITHUB_ENV export overrides the action's.
+        shell: pwsh
+        run: '"ZIG_LOCAL_CACHE_DIR=$env:RUNNER_TEMP\zig-local-cache" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8'
 
       - name: Install locked dependencies
         run: npm ci
@@ -108,7 +118,7 @@ jobs:
           }
           npm run build:vivox
           $proxyHash = (Get-FileHash -LiteralPath "resources\patches\vivoxsdk_x64.dll" -Algorithm SHA256).Hash
-          if ($proxyHash -ne "EEFF8991EA13AA7BB9709B5EBFCB12A00EC805BA41B1C99FED5419E07E5BB028") {
+          if ($proxyHash -ne "766A7C84B10B0C9F2A6F3EDB3C58AB8C8E2FFB6B358C0CEF52966DB82EB6957A") {
             throw "Unexpected Vivox proxy SHA-256: $proxyHash"
           }
           # Les sidecars alimentent les overrides d'attestation embarqués :
@@ -156,7 +166,7 @@ jobs:
             Where-Object { $_.Name -eq "vivoxsdk_x64.dll" } |
             Select-Object -First 1
           $proxyHash = (Get-FileHash -LiteralPath $vivoxProxy.FullName -Algorithm SHA256).Hash
-          if ($proxyHash -ne "EEFF8991EA13AA7BB9709B5EBFCB12A00EC805BA41B1C99FED5419E07E5BB028") {
+          if ($proxyHash -ne "766A7C84B10B0C9F2A6F3EDB3C58AB8C8E2FFB6B358C0CEF52966DB82EB6957A") {
             throw "Unexpected packaged Vivox proxy SHA-256: $proxyHash"
           }
 

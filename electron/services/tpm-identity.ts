@@ -30,14 +30,17 @@ const execFileAsync = promisify(execFile);
 const KEY_NAME = "rotk-hwid-tpm-v1";
 
 /**
- * Signs the nonce that is passed in ROTK_TPM_NONCE (never on the command line,
- * so it cannot be seen or injected) and prints {pub, sig} as base64. .NET
- * Framework 4.x compatible so it runs under the stock Windows PowerShell 5.1.
+ * Signs the message passed base64-encoded in ROTK_TPM_MESSAGE_B64 (never on
+ * the command line, so it cannot be seen or injected; base64 because the
+ * binding message carries NUL separators and Node refuses NUL bytes in a
+ * child's environment) and prints {pub, sig} as base64. .NET Framework 4.x
+ * compatible so it runs under the stock Windows PowerShell 5.1.
  */
 const SIGN_SCRIPT = `
 $ErrorActionPreference = "Stop"
-$nonce = $env:ROTK_TPM_NONCE
-if ([string]::IsNullOrEmpty($nonce)) { throw "no nonce" }
+$encoded = $env:ROTK_TPM_MESSAGE_B64
+if ([string]::IsNullOrEmpty($encoded)) { throw "no message" }
+$data = [Convert]::FromBase64String($encoded)
 $provider = [System.Security.Cryptography.CngProvider]::new("Microsoft Platform Crypto Provider")
 if ([System.Security.Cryptography.CngKey]::Exists("${KEY_NAME}", $provider)) {
   $key = [System.Security.Cryptography.CngKey]::Open("${KEY_NAME}", $provider)
@@ -49,7 +52,6 @@ if ([System.Security.Cryptography.CngKey]::Exists("${KEY_NAME}", $provider)) {
   $key = [System.Security.Cryptography.CngKey]::Create([System.Security.Cryptography.CngAlgorithm]::ECDsaP256, "${KEY_NAME}", $p)
 }
 $ecdsa = [System.Security.Cryptography.ECDsaCng]::new($key)
-$data = [Text.Encoding]::UTF8.GetBytes($nonce)
 $sig = $ecdsa.SignData($data, [System.Security.Cryptography.HashAlgorithmName]::SHA256)
 $pub = $key.Export([System.Security.Cryptography.CngKeyBlobFormat]::EccPublicBlob)
 Write-Output ([Convert]::ToBase64String($pub) + "|" + [Convert]::ToBase64String($sig))
@@ -86,7 +88,7 @@ export async function collectTpmProof(nonce: string): Promise<TpmProof | null> {
     const { stdout } = await execFileAsync(
       windowsSystemToolPath("powershell"),
       ["-NoProfile", "-NonInteractive", "-Command", SIGN_SCRIPT],
-      { windowsHide: true, timeout: 12_000, env: { ...process.env, ROTK_TPM_NONCE: nonce } },
+      { windowsHide: true, timeout: 12_000, env: { ...process.env, ROTK_TPM_MESSAGE_B64: Buffer.from(nonce, "utf8").toString("base64") } },
     );
     const parsed = parseTpmSignOutput(stdout);
     if (parsed === null) return null;

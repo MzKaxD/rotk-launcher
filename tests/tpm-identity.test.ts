@@ -49,6 +49,15 @@ describe("collectTpmProof (real TPM, win32 only)", () => {
     expect(verifyTpmProof(again!.publicKey, again!.signature, "rotk-nonce-beta")).toBe(true);
   });
 
+  it("signs a binding message with NUL separators — what 2.0.12 failed to do", async () => {
+    if (process.platform !== "win32") return;
+    const message = "rotk-tpm-bind-v1\0" + "a".repeat(32) + "\0machine_guid=3F2504E0-4F89-41D3-9A0C-0305E82C3301";
+    const proof = await collectTpmProof(message);
+    if (proof === null) return; // no usable TPM here
+    expect(verifyTpmProof(proof.publicKey, proof.signature, message)).toBe(true);
+    expect(verifyTpmProof(proof.publicKey, proof.signature, "rotk-tpm-bind-v1")).toBe(false);
+  }, 30_000);
+
   it("returns null off Windows", async () => {
     if (process.platform === "win32") return;
     expect(await collectTpmProof("x")).toBeNull();

@@ -53,7 +53,8 @@ describe("collectTpmAnchor / activateTpmAnchor", () => {
     const material = await collectTpmAnchor("rotk-tpm-bind-v1\0abc", {
       run: async (script, env) => { seen = env; expect(script).toContain("rotk-tpm-aik-v1"); return fullLine; },
     });
-    expect(seen).toEqual({ ROTK_TPM_NONCE: "rotk-tpm-bind-v1\0abc" });
+    // Base64: the binding message's NUL separators cannot travel in an environment variable.
+    expect(seen).toEqual({ ROTK_TPM_MESSAGE_B64: Buffer.from("rotk-tpm-bind-v1\0abc", "utf8").toString("base64") });
     expect(material?.proof.publicKey).toBe(PUB);
     expect(await collectTpmAnchor("", { run: async () => fullLine })).toBeNull();
     expect(await collectTpmAnchor("x", { run: async () => { throw new Error("no tpm"); } })).toBeNull();
@@ -143,5 +144,5 @@ describe("collectTpmAnchor (real TPM, win32 only)", () => {
     expect(tpmPublic.subarray(tpmPublic.length - 66, tpmPublic.length - 34).equals(x)).toBe(true);
     // The EK public part is readable without elevation; the certificate may not be.
     expect(material.ek === null || Buffer.from(material.ek.publicKey, "base64").readUInt32LE(0) === 0x31415352).toBe(true);
-  });
+  }, 30_000); // a runner without a TPM spends seconds in Add-Type and the PCP before answering
 });
