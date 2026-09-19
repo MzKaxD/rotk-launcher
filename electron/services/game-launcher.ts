@@ -20,6 +20,7 @@ import {
   type GameplayPatchMode,
 } from "./gameplay-patch.js";
 import { deployVivoxCompatibility } from "./vivox-client.js";
+import { prepareInterfaceInputProfile } from "./interface-input-profile.js";
 
 const GAME_STARTUP_STABILITY_MS = 3_000;
 
@@ -185,6 +186,11 @@ async function prepareClient(
   // proxy for the mode the server directed; preparation only rechecks it so a
   // concurrent drift cannot ride into the process.
   await assertGameplayPatchState(root, clientPatchMode);
+
+  await prepareInterfaceInputProfile(
+    root,
+    join(request.logsRoot, request.config.installation!.installId, "input-profile"),
+  );
 
   const configPath = join(root, "ClientConfig.ini");
   const configBackupPath = join(root, "ClientConfig.original.ini");
