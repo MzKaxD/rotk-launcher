@@ -139,6 +139,7 @@ let diagnostics: DiagnosticController;
 let debugSettingWrite = false;
 const gameLauncher = new GameLauncher();
 const LAUNCHER_UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000;
+const ASSET_SYNC_CHECK_INTERVAL_MS = 30 * 60 * 1_000;
 let installAbortController: AbortController | null = null;
 let phase: LauncherPhase = "unconfigured";
 let sourceRoot: string | null = null;
@@ -294,6 +295,15 @@ function assetSyncSummary(): AssetSyncSummary {
     progress: assetSyncProgress,
     warning: assetSyncWarning,
   };
+}
+
+function gameSessionActive(): boolean {
+  return gameLauncher.isRunning() || phase === "launching" || phase === "running";
+}
+
+function requestBackgroundAssetSync(): void {
+  if (!assetSyncEnabled || phase !== "ready" || gameSessionActive() || assetSyncRunning) return;
+  void runAssetSync("sync", true);
 }
 
 /**
@@ -1018,6 +1028,7 @@ function registerIpc(): void {
             gamePid = null;
             phase = "ready";
             void broadcastSnapshot();
+            requestBackgroundAssetSync();
             if (quitWhenGameExits && !mainWindow && !diagnosticWorkInProgress()) app.quit();
           },
         });
@@ -1274,6 +1285,8 @@ async function initialize(): Promise<void> {
   await broadcastSnapshot();
   void launcherUpdate.check();
   setInterval(() => void launcherUpdate.check(), LAUNCHER_UPDATE_CHECK_INTERVAL_MS);
+  requestBackgroundAssetSync();
+  setInterval(() => requestBackgroundAssetSync(), ASSET_SYNC_CHECK_INTERVAL_MS);
   void refreshServerStatus();
   setInterval(() => void refreshServerStatus(), SERVER_STATUS_POLL_INTERVAL_MS);
 }
